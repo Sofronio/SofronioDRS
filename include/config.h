@@ -9,7 +9,7 @@
 #define SUUID_DECENTSCALE "0000FFF0-0000-1000-8000-00805F9B34FB"
 
 //#define ESPNOW
-#define V7_2
+#define V8_1
 #define THREE_LINE
 #define WIFIOTA
 
