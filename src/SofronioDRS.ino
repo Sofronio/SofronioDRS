@@ -1647,6 +1647,9 @@ void pureScale() {
       f_displayedValue = f_displayedValue - f_weight_container;
       b_minus_container = true;
     }
+
+    if (f_displayedValue >= -0.14 && f_displayedValue <= 0.14) 
+      f_displayedValue = 0.0;
     // print smoothed reading
 
     f_weight_before_input = f_displayedValue;
