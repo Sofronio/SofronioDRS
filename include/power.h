@@ -161,16 +161,26 @@ void esp32_sleep() {
   // attachInterrupt(GPIO_NUM_BUTTON_POWER, esp32_wakeup, FALLING);
   // esp_sleep_enable_ext0_wakeup(GPIO_NUM_BUTTON_POWER, LOW);
   //new bitmap sleep wakeup pin
+#ifdef CONFIG_IDF_TARGET_ESP32S3
   esp_sleep_enable_ext1_wakeup_io(PIN_BITMASK, ESP_EXT1_WAKEUP_ANY_LOW);
+#elif CONFIG_IDF_TARGET_ESP32
+  esp_sleep_enable_ext1_wakeup(PIN_BITMASK, ESP_EXT1_WAKEUP_ANY_HIGH);
+#elif CONFIG_IDF_TARGET_ESP32C3
+  esp_deep_sleep_enable_gpio_wakeup(1 << GPIO_NUM_BUTTON_POWER, ESP_GPIO_WAKEUP_GPIO_LOW);
+#endif
 #endif
   //#if defined(V7_3) || defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1)
 #if !defined(V7_2)
+#ifdef ACC_PWR_CTRL
   digitalWrite(ACC_PWR_CTRL, LOW);
   gpio_hold_en((gpio_num_t)ACC_PWR_CTRL);
 #endif
+#endif
   //#endif
+#ifdef PWR_CTRL
   digitalWrite(PWR_CTRL, LOW);
   gpio_hold_en((gpio_num_t)PWR_CTRL);
+#endif
   esp_deep_sleep_start();
 }
 #endif  //ESP32
@@ -404,7 +414,11 @@ void checkBattery() {
   //if (getUsbVoltage(USB_DET) > 4.0) {
   if (digitalRead(USB_DET) == LOW) {
 #else
+#ifdef V0
+  if (digitalRead(BATTERY_CHARGING) == HIGH) {
+#else
   if (digitalRead(BATTERY_CHARGING) == LOW) {
+#endif
 #endif
     b_is_charging = true;
     c_battery = (char*)"6";  // Special icon for charging

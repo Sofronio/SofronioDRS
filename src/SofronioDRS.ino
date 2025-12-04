@@ -700,7 +700,11 @@ void setup() {
     ;
   button_init();
   linkSubmenus();
+#ifdef V0
+  pinMode(BATTERY_CHARGING, INPUT_PULLDOWN);
+#else
   pinMode(BATTERY_CHARGING, INPUT_PULLUP);
+#endif
 #if defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1)
   pinMode(USB_DET, INPUT_PULLUP);
   // either esp32 rev change or diff in SDK? We get
