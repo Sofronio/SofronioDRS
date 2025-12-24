@@ -160,7 +160,7 @@ void exitMenu() {
   u8g2.setFont(FONT_M);
   u8g2.firstPage();
   do {
-    u8g2.drawUTF8(AC((char *)"退出设置"), AM(), (char *)"退出设置");
+    u8g2.drawUTF8(AC((char *)"退出设置"), AM() - 5, (char *)"退出设置");
   } while (u8g2.nextPage());
 #ifdef BUZZER
 
@@ -382,7 +382,7 @@ void calibration(int input) {
         u8g2.firstPage();
         u8g2.setFont(FONT_S);
         do {
-          u8g2.drawUTF8(AC((char *)"请移开砝码"), AM(), (char *)"请移开砝码");
+          u8g2.drawUTF8(AC((char *)"请移开砝码"), AM() - 5, (char *)"请移开砝码");
         } while (u8g2.nextPage());
 #ifdef BUZZER
         buzzer.off();
@@ -433,7 +433,7 @@ void calibration(int input) {
       u8g2.firstPage();
       u8g2.setFont(FONT_S);
       do {
-        u8g2.drawUTF8(AC((char *)"0g校准中"), AM(),
+        u8g2.drawUTF8(AC((char *)"0g校准中"), AM() - 5,
                       (char *)"0g校准中");
       } while (u8g2.nextPage());
 
@@ -442,7 +442,7 @@ void calibration(int input) {
       u8g2.firstPage();
       u8g2.setFont(FONT_S);
       do {
-        u8g2.drawUTF8(AC((char *)"0g校准完成"), AM(),
+        u8g2.drawUTF8(AC((char *)"0g校准完成"), AM() - 5,
                       (char *)"0g校准完成");
       } while (u8g2.nextPage());
 #ifdef BUZZER
@@ -508,7 +508,7 @@ void calibration(int input) {
         u8g2.setFont(FONT_S);
         do {
 
-          u8g2.drawUTF8(AC((char *)"正在校准"), AM(), (char *)"正在校准");
+          u8g2.drawUTF8(AC((char *)"正在校准"), AM() - 5, (char *)"正在校准");
         } while (u8g2.nextPage());
 #ifdef BUZZER
         buzzer.off();
@@ -533,7 +533,7 @@ void calibration(int input) {
           do {
             // 2行
             // FONT_M = u8g2_font_fub14_tn;
-            u8g2.drawUTF8(AC((char *)"没有检测到砝码"), AM(),
+            u8g2.drawUTF8(AC((char *)"没有检测到砝码"), AM() - 5,
                           (char *)"没有检测到砝码");
           } while (u8g2.nextPage());
 #ifdef BUZZER
@@ -570,7 +570,7 @@ void calibration(int input) {
         do {
           // 2行
           // FONT_M = u8g2_font_fub14_tn;
-          u8g2.drawUTF8(AC((char *)"校准已完成"), AM(),
+          u8g2.drawUTF8(AC((char *)"校准已完成"), AM() - 5,
                         (char *)"校准已完成");
         } while (u8g2.nextPage());
 #ifdef BUZZER
@@ -631,7 +631,7 @@ void calibration(int input) {
         u8g2.firstPage();
         u8g2.setFont(FONT_S);
         do {
-          u8g2.drawUTF8(AC((char *)"正在读取砝码"), AM(),
+          u8g2.drawUTF8(AC((char *)"正在读取砝码"), AM() - 5,
                         (char *)"正在读取砝码");
         } while (u8g2.nextPage());
 #ifdef BUZZER
@@ -697,7 +697,7 @@ void calibration(int input) {
         u8g2.firstPage();
         u8g2.setFont(FONT_S);
         do {
-          u8g2.drawUTF8(AC((char *)"正在校准"), AM(), (char *)"正在校准");
+          u8g2.drawUTF8(AC((char *)"正在校准"), AM() - 5, (char *)"正在校准");
         } while (u8g2.nextPage());
 #ifdef BUZZER
         buzzer.off();
@@ -722,7 +722,7 @@ void calibration(int input) {
         u8g2.firstPage();
         u8g2.setFont(FONT_S);
         do {
-          u8g2.drawUTF8(AC((char *)"校准已完成"), AM(),
+          u8g2.drawUTF8(AC((char *)"校准已完成"), AM() - 5,
                         (char *)"校准已完成");
           // u8g2.drawUTF8(AC((char *)trim(c_calval)), LCDHeight -
           // i_margin_bottom, (char *)trim(c_calval));
@@ -747,7 +747,7 @@ void wifiUpdate() {
   u8g2.setFont(FONT_M);
   u8g2.firstPage();
   do {
-    u8g2.drawUTF8(AC((char *)"WiFi升级"), AM(), (char *)"WiFi升级");
+    u8g2.drawUTF8(AC((char *)"WiFi升级"), AM() - 5, (char *)"WiFi升级");
   } while (u8g2.nextPage());
 #ifdef BUZZER
   buzzer.off();
@@ -766,7 +766,7 @@ void enableDebug() {
   u8g2.setFont(FONT_M);
   u8g2.firstPage();
   do {
-    u8g2.drawUTF8(AC((char *)"Debug信息"), AM(), (char *)"Debug信息");
+    u8g2.drawUTF8(AC((char *)"Debug信息"), AM() - 5, (char *)"Debug信息");
   } while (u8g2.nextPage());
 #ifdef BUZZER
   buzzer.off();
@@ -993,7 +993,7 @@ void showMenu() {
       u8g2.setFont(FONT_M);
       if (AC(actionMessage.c_str()) < 0)
         u8g2.setFont(FONT_S);
-      u8g2.drawUTF8(AC(actionMessage.c_str()), AM(), actionMessage.c_str());
+      u8g2.drawUTF8(AC(actionMessage.c_str()), AM() - 5, actionMessage.c_str());
     } else {
       u8g2.setFont(FONT_XS);
       currentPage = currentIndex / linesPerPage + 1;

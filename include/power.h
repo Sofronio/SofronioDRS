@@ -331,7 +331,7 @@ void power_off(int min) {
       double d_timeleft = min * 60 - (millis() - t_power_off) / 1000;
       Serial.print(d_timeleft);
       Serial.println(" seconds to power off");
-      if (d_timeleft <= 0) {
+      if (d_timeleft <= 0 && b_autoSleep == true) {
         shut_down_now();
       }
     }
@@ -383,7 +383,7 @@ void power_off(double sec) {
         double d_timeleft = sec - (millis() - t_power_off) / 1000;
         //Serial.print(d_timeleft);
         //Serial.println(" seconds to power off");
-        if (d_timeleft <= 0) {
+        if (d_timeleft <= 0 && b_autoSleep == true) {
           shut_down_now();
         }
       }

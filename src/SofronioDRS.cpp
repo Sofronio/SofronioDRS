@@ -53,6 +53,9 @@
                   fix - removed button suppress
                   fix - battery refresh too much cause t_battery was wrong
                   fix - universal template for getArrarySize
+  2025-12-24 v6.1.1 fix - menu option in v6.1 was not loaded
+                    fix - changed the project file from .ino to proper .cpp
+                    fix - text not veritical centered in menu
 
 
   todo
@@ -77,6 +80,69 @@
 #include "wifi_ota.h"
 #include "espnow.h"
 #include "menu.h"
+
+// 函数声明
+bool readBoolEEPROMWithValidation(int addr, bool defaultVal);
+uint8_t calculateXOR(uint8_t *data, size_t len);
+void encodeWeight(float weight, byte &byte1, byte &byte2);
+void ble_init();
+void button_init();
+void buttonSet_Pressed();
+void buttonTare_Pressed();
+void buttonTARE_Released();
+void buttonPlus_Pressed();
+void buttonMinus_Pressed();
+void buttonSet_DoubleClicked();
+void buttonTare_DoubleClicked();
+void buttonSet_LongPressed();
+void buttonTare_LongPressed();
+void initExtration();
+void aceButtonHandleEvent(AceButton *button, uint8_t eventType, uint8_t buttonState);
+
+// 称重相关函数
+void pourOverScale();
+void espressoScale();
+void pureScale();
+void updateAdaptiveTracking(float current_weight);
+void performTrackingAdjustment(float current_weight);
+bool verifyWeightStability(float current_weight);
+float applyTrackingCompensation(float raw_weight);
+float applyStableOutput(float current_value);
+void resetTracking();
+void resetStableOutput();
+void setStableOutputEnabled(bool enabled);
+void setStableOutputThreshold(float threshold);
+void setTrackingEnabled(bool enabled);
+void displayEnhancedStatus(float raw_weight, float compensated_weight, float stable_weight);
+float getTrackingOffset();
+float getStableOutputValue();
+void setManualTrackingOffset(float offset);
+void setManualStableValue(float value);
+float getTemperatureDriftCompensation();
+void adjustTemperatureDriftCompensation(float amount);
+
+// 显示相关函数
+void updateOled();
+void drawPureScale();
+void drawExtrationScale();
+void drawButtonBox();
+void drawBle();
+void drawTare();
+void drawBattery();
+void drawDebug();
+void drawDriftCompensationInfo();
+void chargingOLED(int perc, float voltage);
+
+// 通信相关函数
+void serialCommand();
+void sendBleWeight();
+void sendBleButton(int buttonNumber, int buttonShortPress);
+void sendBlePowerOff(int i_reason);
+
+// 调试函数
+#if defined(DEBUG) && defined(CHECKBATTERY)
+void debugData();
+#endif
 
 //unsupported by later esp32s3
 // #include <BluetoothSerial.h>
@@ -710,6 +776,18 @@ void setup() {
   Serial.begin(115200);
   while (!Serial)
     ;
+  if (!EEPROM.begin(512)) {
+    Serial.println("EEPROM init failed!");
+    while (1) {
+      delay(1000);
+    }
+  }
+
+  if (readBoolEEPROMWithValidation(i_addr_quickBoot, false))
+        i_buttonBootDelay = 0;
+
+  Serial.println("EEPROM init success");
+
   button_init();
   linkSubmenus();
 #ifdef V0
@@ -737,6 +815,12 @@ void setup() {
   else
     b_ble_enabled = false;
   while (true && GPIO_power_on_with > 0) {
+    if (i_buttonBootDelay == 0){
+      Serial.println("Quick boot. Powering on...");
+        // Execute power on logic
+      break;  // Exit loop to continue with other code
+    }
+
     if (digitalRead(GPIO_power_on_with) == TRIGGER_LEVEL) {  // Button is pressed
       if (!b_button_pressed) {
         t_power_on_button = millis();
@@ -786,9 +870,6 @@ void setup() {
     ble_init();
   }
 
-#if defined(ESP8266) || defined(ESP32) || defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_ARCH_MBED_RP2040) || defined(ESP32C3)
-  EEPROM.begin(512);
-#endif
 #ifdef DEBUG_BT
   SerialBT.begin("soso D.R.S");
 #endif
@@ -874,9 +955,9 @@ void setup() {
     u8g2.drawXBM(0, 0, 128, 64, image_logo);
   } while (u8g2.nextPage());
 
-  // if (GPIO_power_on_with != BATTERY_CHARGING) {
-  //   delay(1000);
-  // }
+if (GPIO_power_on_with != BATTERY_CHARGING) {
+  delay(1000);
+}
 #endif  //WELCOME
   stopWatch.setResolution(StopWatch::SECONDS);
   stopWatch.start();
@@ -895,6 +976,8 @@ void setup() {
   EEPROM.get(INPUTCOFFEEESPRESSO_ADDRESS, INPUTCOFFEEESPRESSO);
   EEPROM.get(i_addr_batteryCalibrationFactor, f_batteryCalibrationFactor);
   EEPROM.get(i_addr_beep, b_beep);
+  EEPROM.get(i_addr_mode, b_mode);
+  EEPROM.get(i_addr_driftCompensation, f_maxDriftCompensation);
   Serial.print("f_batteryCalibrationFactor:");
   Serial.println(f_batteryCalibrationFactor);
   if (isnan(f_batteryCalibrationFactor)) {
@@ -918,6 +1001,11 @@ void setup() {
     EEPROM.commit();
 #endif
   }
+  if (isnan(f_maxDriftCompensation)) {
+    f_maxDriftCompensation = 0.05;
+    EEPROM.put(i_addr_driftCompensation, f_maxDriftCompensation);
+    EEPROM.commit();
+  }
   if (b_beep != 0 && b_beep != 1) {
     b_beep = 1;
     EEPROM.put(i_addr_beep, b_beep);
@@ -925,6 +1013,11 @@ void setup() {
     EEPROM.commit();
 #endif
   }
+  b_requireHeartBeat = readBoolEEPROMWithValidation(i_addr_requireHeartBeat, true);
+  b_timeOnTop = readBoolEEPROMWithValidation(i_addr_timeOnTop, false);
+  b_btnFuncWhileConnected = readBoolEEPROMWithValidation(i_addr_btnFuncWhileConnected, false);
+  b_autoSleep = readBoolEEPROMWithValidation(i_addr_autoSleep, true);
+  
   //读取模式
   EEPROM.get(i_addr_mode, b_mode);
   if (b_mode > 1) {
