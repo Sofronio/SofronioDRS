@@ -47,6 +47,13 @@
   2025-08-21 v5.6 add - v8.1 PCB support
   2025-08-21 v5.7 fix - charging ui
                   fix - battery reading frequncy
+  2025-12-24 v6.1 add - drift compensation
+                  add - menu option of autosleep, quickboot, drift compensation
+                  fix - tare triggered by buttonTare_Released()
+                  fix - removed button suppress
+                  fix - battery refresh too much cause t_battery was wrong
+                  fix - universal template for getArrarySize
+
 
   todo
   开机M进入菜单
