@@ -9,7 +9,7 @@
 #define SUUID_DECENTSCALE "0000FFF0-0000-1000-8000-00805F9B34FB"
 
 //#define ESPNOW
-#define V0
+#define V8_1
 #define THREE_LINE
 #define WIFIOTA
 
@@ -34,8 +34,8 @@
 //#define CHECKBATTERY
 
 //SCALE CONFIG
-#define LINE1 (char*)"FW: 6.0.0"
-#define LINE2 (char*)"Built-date(YYYYMMDD): 20251130"
+#define LINE1 (char*)"FW: 6.1.0"
+#define LINE2 (char*)"Built-date(YYYYMMDD): 20251224"
 #define LINE3 (char*)"S/N: DRS073"  //序列号 073
 #define VERSION /*版本号 version*/ LINE1, /*编译日期*/ LINE2, /*序列号*/ LINE3
 //About info
@@ -45,6 +45,7 @@
 #define WELCOME2 (char*)"w2"
 #define WELCOME3 (char*)"w3"
 #define WELCOME WELCOME1, FONT_EXTRACTION
+#define BUZZER_DURATION 5
 
 //Language
 //#define ENGLISH
@@ -120,8 +121,7 @@
 
 #define I2C_SCL 4
 #define I2C_SDA 5
-#define BATTERY_PIN 6 //wasn't used but to keep getVoltage(battery_pin) working. Any number is good for that.
-#define CHRG_CTRL 6 //Introduced in PCB v8.3.1 to control TP4056 charging for bettery battery voltage sampling.
+#define BATTERY_PIN 6 //wasn't used but to keep getVoltage(battery_pin) working. Any number is good for that. //Introduced in PCB v8.3.1 to control TP4056 charging for bettery battery voltage sampling.
 #define OLED_SDIN 7
 #define OLED_SCLK 15
 #define OLED_DC 16

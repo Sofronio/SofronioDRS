@@ -280,28 +280,18 @@ void aceButtonHandleEvent(AceButton *button, uint8_t eventType, uint8_t buttonSt
         case BUTTON_TARE:
           buttonTare_Pressed();
           break;
-      }
-      break;
-    case AceButton::kEventClicked:
-      switch (pin) {
-        case BUTTON_SET:
-          buttonSet_Clicked();
-          break;
 #if defined(FOUR_BUTTON) || defined(FIVE_BUTTON)
         case BUTTON_PLUS:
           if (!deviceConnected)
-            buttonPlus_Clicked();
+            buttonPlus_Pressed();
           else
             sendBleButton(1, 0);
           Serial.println("Right button short pressed");
           break;
         case BUTTON_MINUS:
-          buttonMinus_Clicked();
+          buttonMinus_Pressed();
           break;
 #endif
-        case BUTTON_TARE:
-          buttonTare_Clicked();
-          break;
 #ifdef FIVE_BUTTON
         case BUTTON_POWER:
           Serial.println("BUTTON_POWER Clicked");
@@ -334,14 +324,21 @@ void aceButtonHandleEvent(AceButton *button, uint8_t eventType, uint8_t buttonSt
           break;
       }
       break;
+    case AceButton::kEventReleased:
+      switch (pin) {
+        case BUTTON_TARE:
+          buttonTARE_Released();
+          break;
+      }
+      break;
     case AceButton::kEventRepeatPressed:
       switch (pin) {
 #if defined(FOUR_BUTTON) || defined(FIVE_BUTTON)
         case BUTTON_PLUS:
-          buttonPlus_Clicked();
+          buttonPlus_Pressed();
           break;
         case BUTTON_MINUS:
-          buttonMinus_Clicked();
+          buttonMinus_Pressed();
           break;
 #endif
       }
@@ -359,7 +356,7 @@ void buttonSet_Pressed() {
       i_setContainerWeight = 1;
     } else if (b_calibration) {
       i_cal_weight++;
-      if (i_cal_weight > 3)
+      if (i_cal_weight >= getArraySize(weight_values))
         i_cal_weight = 0;
     } else if (b_extraction) {
       if (stopWatch.isRunning() == false) {
@@ -389,7 +386,36 @@ void buttonSet_Pressed() {
   }
 }
 
+void buttonTARE_Released() {
+  //trigger tare after released to avoid to judge where the tare should be placed.
+  Serial.println("Tare button released");
+  if (!deviceConnected || b_btnFuncWhileConnected) {
+    if (b_set_container) {
+      t_tareByButton = millis();
+      b_tareByButton = true;
+    } else if (b_extraction) {
+      if (stopWatch.isRunning()){
+      }
+      else {
+        t_tareByButton = millis();
+        b_tareByButton = true;
+      }
+    } else {
+      //普通归零
+      b_weight_quick_zero = true;
+      t_tareByButton = millis();
+      b_tareByButton = true;
+    }
+  }
+  Serial.println("Tare button released");
+  if (deviceConnected) {
+    sendBleButton(2, 1);
+  }
+}
+
 void buttonTare_Pressed() {
+  if (deviceConnected)
+    sendBleButton(1, 0);
   Serial.println("Tare button short pressed");
   if (b_menu) {
     selectMenu();  // Select current menu item
@@ -400,8 +426,6 @@ void buttonTare_Pressed() {
       //scaleTimer();
     }
     if (b_set_container) {
-      t_tareByButton = millis();
-      b_tareByButton = true;
     } else if (b_calibration) {
       i_button_cal_status++;
       Serial.print("i_button_cal_status:");
@@ -414,9 +438,9 @@ void buttonTare_Pressed() {
         stopWatch.stop();
       else {
         //萃取模式归零
-        //不在计时中 重量归零 时间归零
+        //不在计时中 时间归零
         //a tare on extracion mode.
-        //timer not runing, zero the scale and timer.
+        //timer not runing, zero the timer.
         b_weight_quick_zero = true;
         if (!b_extraction)
           f_weight_dose = 0;
@@ -425,26 +449,12 @@ void buttonTare_Pressed() {
         t_extraction_first_drop = 0;
         t_extraction_first_drop_num = 0;
         t_extraction_last_drop = 0;
-        t_tareByButton = millis();
-        b_tareByButton = true;
       }
-    } else {
-      //普通归零
-      //a standard tare.
-      //f_temp_tare = f_filtered_temperature;
-      b_weight_quick_zero = true;
-      t_tareByButton = millis();
-      b_tareByButton = true;
     }
   }
 }
 
-void buttonSet_Clicked() {
-  if (deviceConnected)
-    sendBleButton(0, 0);
-}
-
-void buttonPlus_Clicked() {
+void buttonPlus_Pressed() {
   if (millis() - t_button_pressed > 500) {
     t_button_pressed = millis();
     // if (b_set_sample) {
@@ -470,7 +480,7 @@ void buttonPlus_Clicked() {
   }
 }
 
-void buttonMinus_Clicked() {
+void buttonMinus_Pressed() {
   if (millis() - t_button_pressed > 1000) {
     t_button_pressed = millis();
     // if (b_set_sample) {
@@ -490,11 +500,6 @@ void buttonMinus_Clicked() {
         i_decimal_precision = 1;
     }
   }
-}
-
-void buttonTare_Clicked() {
-  if (deviceConnected)
-    sendBleButton(1, 0);
 }
 
 
@@ -682,11 +687,11 @@ void button_init() {
 
   config1.setEventHandler(aceButtonHandleEvent);
   config1.setFeature(ButtonConfig::kFeatureClick);
-  config1.setFeature(ButtonConfig::kFeatureSuppressAfterClick);
+  //config1.setFeature(ButtonConfig::kFeatureSuppressAfterClick);
   config1.setFeature(ButtonConfig::kFeatureDoubleClick);
-  config1.setFeature(ButtonConfig::kFeatureSuppressClickBeforeDoubleClick);
+  //config1.setFeature(ButtonConfig::kFeatureSuppressClickBeforeDoubleClick);
   config1.setFeature(ButtonConfig::kFeatureLongPress);
-  config1.setFeature(ButtonConfig::kFeatureSuppressAfterLongPress);
+  //config1.setFeature(ButtonConfig::kFeatureSuppressAfterLongPress);
   //config1.setFeature(ButtonConfig::kFeatureRepeatPress);
   //config1.setRepeatPressInterval(10);
   config1.setDoubleClickDelay(DOUBLECLICK);
@@ -709,8 +714,6 @@ void setup() {
   pinMode(USB_DET, INPUT_PULLUP);
   // either esp32 rev change or diff in SDK? We get
   // warnings in logs about incorrect pinMode
-  pinMode(CHRG_CTRL, OUTPUT);
-  digitalWrite(CHRG_CTRL, LOW);
   pinMode(OLED_CS, OUTPUT);
   pinMode(OLED_DC, OUTPUT);
   pinMode(SCALE_PDWN, OUTPUT);
@@ -864,9 +867,9 @@ void setup() {
     u8g2.drawXBM(0, 0, 128, 64, image_logo);
   } while (u8g2.nextPage());
 
-  if (GPIO_power_on_with != BATTERY_CHARGING) {
-    delay(1000);
-  }
+  // if (GPIO_power_on_with != BATTERY_CHARGING) {
+  //   delay(1000);
+  // }
 #endif  //WELCOME
   stopWatch.setResolution(StopWatch::SECONDS);
   stopWatch.start();
@@ -1622,21 +1625,67 @@ void pureScale() {
     float raw_weight = scale.getData();
     f_current_raw_value = raw_weight;  // Store for status display
 
-    // Apply adaptive tracking compensation
-    float compensated_weight = applyTrackingCompensation(raw_weight);
-
-    // Apply stable output filtering
-    float stable_weight = applyStableOutput(compensated_weight);
-
-    // Update adaptive tracking (use compensated weight, not stable weight)
-    updateAdaptiveTracking(compensated_weight);
+    // Continuous temperature drift detection and compensation
+    // 1. Calculate difference between current raw and displayed value
+    float current_diff = raw_weight - f_displayedValue - f_driftCompensation;
+    
+    // 2. If difference is small (0.01g-0.1g), accumulate to continuous compensation
+    if (fabs(current_diff) > 0.01 && fabs(current_diff) < f_maxDriftCompensation) {
+      static int f_similar_diff_count = 0;
+      static float f_last_diff = current_diff;
+      
+      // Check if continuous same direction change
+      if ((f_last_diff * current_diff) > 0) {  // Same direction
+        f_similar_diff_count++;
         
-    // Dead zone processing (apply to stable weight)
-    if (stable_weight >= -0.14 && stable_weight <= 0.14) {
+        // If continuous micro changes, increase continuous compensation
+        if (f_similar_diff_count >= 3) {
+          // Increase continuous compensation (slowly)
+          f_driftCompensation += current_diff * 0.3;  // Compensate 30% each time
+          
+          // Limit compensation range
+          if (fabs(f_driftCompensation) > 2.0) {
+            f_driftCompensation = (f_driftCompensation > 0) ? 2.0 : -2.0;
+          }
+          
+          if (b_weight_in_serial) {
+            Serial.print("TEMP-DRIFT-COMP: diff=");
+            Serial.print(current_diff, 4);
+            Serial.print("g, total_comp=");
+            Serial.print(f_driftCompensation, 4);
+            Serial.print("g, count=");
+            Serial.println(f_similar_diff_count);
+          }
+          
+          f_similar_diff_count = 2;  // Keep partial count for continued detection
+        }
+      } else {
+        // Direction changed, reset
+        f_similar_diff_count = 1;
+      }
+      
+      f_last_diff = current_diff;
+    } else {
+      // Difference too large or too small, reset detection
+      static int f_similar_diff_count = 0;
+      f_similar_diff_count = 0;
+    }
+    
+    // 3. Apply continuous temperature compensation
+    float temperature_compensated = raw_weight - f_driftCompensation;
+    
+    // 4. Original processing pipeline
+    float tracking_compensated = applyTrackingCompensation(temperature_compensated);
+    float stable_output = applyStableOutput(tracking_compensated);
+    
+    if (stable_output >= -0.14 && stable_output <= 0.14) {
       f_displayedValue = 0.0;
     } else {
-      f_displayedValue = stable_weight;
+      // scale value is outside tolerance range, update displayed value
+      f_displayedValue = stable_output;
     }
+    // Update adaptive tracking (use temperature compensated value)
+    updateAdaptiveTracking(tracking_compensated);
 
     if (!b_minus_container_button) {
       //自动减去容器重量
@@ -1660,12 +1709,24 @@ void pureScale() {
 
     dtostrf(f_displayedValue, 7, i_decimal_precision, c_weight);
     if (b_weight_in_serial == true) {
-      //Serial.println(trim(c_weight));
-
-      // Display status periodically
       unsigned long current_time = millis();
       if (current_time - t_last_status_display >= STATUS_DISPLAY_INTERVAL) {
-        displayEnhancedStatus(raw_weight, compensated_weight, stable_weight);
+        Serial.println("=== Temperature Drift Status ===");
+        Serial.print("Raw: ");
+        Serial.print(raw_weight, 4);
+        Serial.print("g | TempComp: ");
+        Serial.print(f_driftCompensation, 4);
+        Serial.print("g | AfterTempComp: ");
+        Serial.print(temperature_compensated, 4);
+        Serial.println("g");
+        
+        Serial.print("Displayed: ");
+        Serial.print(f_displayedValue, 4);
+        Serial.print("g | Raw-Display Diff: ");
+        Serial.print(raw_weight - f_displayedValue, 4);
+        Serial.println("g");
+        
+        displayEnhancedStatus(temperature_compensated, tracking_compensated, stable_output);
         t_last_status_display = current_time;
       }
     }
@@ -1715,13 +1776,19 @@ void pureScale() {
     t_tareStatus = millis();
     b_weight_quick_zero = false;
     resetTracking();
-    resetStableOutput();  // Also reset stable output
+    resetStableOutput();
+    f_driftCompensation = 0.0;
+    f_displayedValue = 0.0;
+    if (b_weight_in_serial) {
+      Serial.println("TARE: Temperature drift compensation reset");
+    }
   }
   //记录咖啡粉时，将重量固定为0
   if (b_weight_quick_zero) {
     f_displayedValue = 0.0;
+    f_driftCompensation = 0.0;
     resetTracking();
-    resetStableOutput();  // Also reset stable output
+    resetStableOutput();
   }
 
   float ratio_temp = f_displayedValue / f_weight_dose;
@@ -1732,6 +1799,23 @@ void pureScale() {
   dtostrf(ratio_temp, 7, i_decimal_precision, c_brew_ratio);
 }
 
+/**
+ * Get current temperature compensation value
+ */
+float getTemperatureDriftCompensation() {
+  return f_driftCompensation;
+}
+
+/**
+ * Manually adjust temperature compensation
+ */
+void adjustTemperatureDriftCompensation(float amount) {
+  f_driftCompensation += amount;
+  Serial.print("Manual temp-comp adjust: ");
+  Serial.print(amount, 4);
+  Serial.print("g, total: ");
+  Serial.println(f_driftCompensation, 4);
+}
 
 /**
  * Reset tracking system (for tare/zero operations)
@@ -2057,11 +2141,12 @@ void serialCommand() {
     }
 
     if (inputString.startsWith("tare")) {
-      buttonTare_Clicked();
+      buttonTare_Pressed();
+      buttonTARE_Released();
     }
 
     if (inputString.startsWith("set")) {
-      buttonSet_Clicked();
+      buttonSet_Pressed();
     }
 
     if (inputString.startsWith("beep")) {  //蜂鸣器
@@ -2258,7 +2343,7 @@ void loop() {
 
   if (millis() - t_batteryRefresh > i_batteryRefreshTareInterval) {
     updateBattery(BATTERY_PIN);
-    t_battery = millis();
+    t_batteryRefresh = millis();
   }
   checkBattery();
   if (b_menu) {
@@ -2408,10 +2493,11 @@ void updateOled() {
       } else {
         drawPureScale();
       }
-      drawBle();
       drawBattery();
       drawButtonBox();
+      drawBle();
       drawTare();
+      //drawDriftCompensationInfo();
     } while (u8g2.nextPage());
   }
 }
@@ -2723,4 +2809,26 @@ void drawDebug() {
     u8g2.drawStr(AR((char *)trim(weightText)), lineHeight * 2, (char *)trim(weightText));
     u8g2.drawStr(AR(sec2sec(stopWatch.elapsed())), lineHeight * 3, sec2sec(stopWatch.elapsed()));
   }
+}
+
+void drawDriftCompensationInfo() {
+  char factorText[20];
+  u8g2.setFont(u8g2_font_6x13_tr);
+  
+  snprintf(factorText, sizeof(factorText), "TUI:%lums", TRACKING_UPDATE_INTERVAL);
+  u8g2.drawStr(0, 13, (char *)trim(factorText));
+  snprintf(factorText, sizeof(factorText), "TT:%.2f", TRACKING_THRESHOLD);
+  u8g2.drawStr(AR((char *)trim(factorText)), 13, (char *)trim(factorText));
+
+  snprintf(factorText, sizeof(factorText), "%.3f", f_maxDriftCompensation);
+  u8g2.drawStr(0, 26, (char *)"MDC");
+  u8g2.drawStr(0, 39, (char *)trim(factorText));
+
+  snprintf(factorText, sizeof(factorText), "TDC:%.2f", f_driftCompensation * -1);
+  u8g2.drawStr(AR((char *)trim(factorText)), 26, (char *)trim(factorText));
+
+  snprintf(factorText, sizeof(factorText), "RAW:%.2f", f_current_raw_value);
+  u8g2.drawStr(12, 64, (char *)trim(factorText));
+  snprintf(factorText, sizeof(factorText), "%.2f", f_displayedValue);
+  u8g2.drawStr(80, 64, (char *)trim(factorText));
 }

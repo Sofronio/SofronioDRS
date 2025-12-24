@@ -6,6 +6,11 @@
 unsigned long lastWeightNotifyTime = 0;  // Stores the last time the weight notification was sent
 const long weightNotifyInterval = 100;   // Interval at which to send weight notifications (milliseconds)
 int i_onWrite_counter = 0;
+bool b_requireHeartBeat = true;
+bool b_screenFlipped = false;
+bool b_timeOnTop = false;
+bool b_btnFuncWhileConnected = false;
+
 //
 int windowLength = 5;  // default window length
 // define circular buffer
@@ -14,8 +19,6 @@ int bufferIndex = 0;
 
 //constant 常量
 //const int sample[] = { 1, 2, 4, 8, 16, 32, 64, 128 };
-const char* weights[] = { "100g", "200g", "500g", "1000g" };
-const float weight_values[] = { 100.0, 200.0, 500.0, 1000.0 };
 const int i_margin_top = 8;
 const int i_margin_bottom = 8;
 
@@ -68,7 +71,11 @@ int i_icon = 0;  //充电指示电量数字0-6
 int i_setContainerWeight = 0;
 float f_filtered_temperature = 0;
 bool b_ads1115InitFail = true;  //ads1115 not detected flag
-
+bool b_wifiOnBoot = false;
+bool b_autoSleep = true;
+bool b_quickBoot = false;
+unsigned int i_buttonBootDelay = 500;
+bool b_showChargingUI = false;
 
 
 //电子秤参数和计时点
@@ -76,14 +83,14 @@ bool b_ads1115InitFail = true;  //ads1115 not detected flag
 static float f_tracking_offset = 0.0;              // Current tracking offset
 static float f_tracking_target = 0.0;              // Current tracking target weight
 static unsigned long t_last_tracking_update = 0;   // Last tracking update time
-static const unsigned long TRACKING_UPDATE_INTERVAL = 500; // Tracking update interval 5 seconds
-static const float TRACKING_THRESHOLD = 0.2;      // Tracking stability threshold
+static const unsigned long TRACKING_UPDATE_INTERVAL = 1000; // Tracking update interval 5 seconds
+static const float TRACKING_THRESHOLD = 0.1;      // Tracking stability threshold
 static const int i_STABLE_COUNT_THRESHOLD = 5;     // Stable count threshold
 static const float MAX_TRACKING_ADJUSTMENT = 0.5;  // Maximum single adjustment
 
 static unsigned long t_last_status_display = 0;
 static const unsigned long STATUS_DISPLAY_INTERVAL = 5000;
-static bool b_weight_in_serial = true;
+static bool b_weight_in_serial = false;
 
 static int i_stable_count = 0;                     // Stable state counter
 static bool b_tracking_enabled = true;          // Tracking enable flag
@@ -92,9 +99,14 @@ static bool b_tracking_active = false;          // Whether tracking is currently
 // Stable output system global variables
 static float f_previous_stable_value = 0.0;        // Previous stable output value
 static float f_current_raw_value = 0.0;            // Current raw input value
-static float STABLE_OUTPUT_THRESHOLD = 0.2;       // Minimum change to update output
+static float STABLE_OUTPUT_THRESHOLD = 0.1;       // Minimum change to update output
 static bool b_stable_output_enabled = true;     // Stable output enable flag
 static unsigned long t_last_stable_change = 0;     // Time of last stable change
+static float f_driftCompensation = 0.0;  // Continuous temperature drift compensation
+static float f_maxDriftCompensation = 0.05;  // Maximum micro-drift range for temperature compensation (g)
+// Range: 0.01g to this value will be considered as temperature drift
+// Values above this are considered as real weight changes, not drift
+//bool b_tempDisablePowerOff = true;
 
 bool b_weight_quick_zero = false;         //Tare后快速显示为0优化
 char c_weight[10];                          //咖啡重量显示
@@ -222,6 +234,14 @@ int INPUTCOFFEEESPRESSO_ADDRESS = INPUTCOFFEEPOUROVER_ADDRESS + sizeof(INPUTCOFF
 int i_addr_beep = INPUTCOFFEEESPRESSO_ADDRESS + sizeof(INPUTCOFFEEESPRESSO);
 int i_addr_welcome = i_addr_beep + sizeof(b_beep);                         //str_welcome
 int i_addr_batteryCalibrationFactor = i_addr_welcome + sizeof(str_welcome);  //f_batteryCalibrationFactor
+int i_addr_requireHeartBeat = i_addr_batteryCalibrationFactor + sizeof(f_batteryCalibrationFactor);  //b_requireHeartBeat
+int i_addr_screenFlipped = i_addr_requireHeartBeat + sizeof(b_requireHeartBeat);                     //b_screenFlipped
+int i_addr_timeOnTop = i_addr_screenFlipped + sizeof(b_screenFlipped);                               //b_timeOnTop
+int i_addr_btnFuncWhileConnected = i_addr_timeOnTop + sizeof(b_timeOnTop);                           //b_btnFuncWhileConnected
+int i_addr_enableWifiOnBoot = i_addr_btnFuncWhileConnected + sizeof(b_btnFuncWhileConnected);        //b_wifiOnBoot
+int i_addr_autoSleep = i_addr_enableWifiOnBoot + sizeof(b_wifiOnBoot);
+int i_addr_quickBoot = i_addr_autoSleep + sizeof(b_autoSleep);//b_quickBoot
+int i_addr_driftCompensation = i_addr_quickBoot + sizeof(b_quickBoot);//f_maxDriftCompensation
 
 
 #endif
