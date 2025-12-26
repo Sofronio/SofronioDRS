@@ -273,7 +273,7 @@ void shut_down_now_accidentTouch() {
   esp32_sleep();
 }
 
-void updateBattery(int batteryPin) {
+void updateBattery(int batteryPin){
 #ifdef ADS1115ADC
   if (!b_ads1115InitFail) {
     int16_t adc0;
@@ -281,19 +281,17 @@ void updateBattery(int batteryPin) {
     adc0 = ads.readADC_SingleEnded(0);
     volts0 = ads.computeVolts(adc0);
     f_batteryVoltage = volts0 * 2.0;
-  } else {
+  }
+  else {
+#else
     int adcValue = analogRead(batteryPin);                               // Read the value from ADC
     float voltageAtPin = (adcValue / adcResolution) * referenceVoltage;  // Calculate voltage at ADC pin
     float batteryVoltage = voltageAtPin * dividerRatio;                  // Calculate the actual battery voltage
     float correctedVoltage = batteryVoltage * f_batteryCalibrationFactor;
     f_batteryVoltage = correctedVoltage;
+#endif
+#ifdef ADS1115ADC
   }
-#else
-  int adcValue = analogRead(batteryPin);                               // Read the value from ADC
-  float voltageAtPin = (adcValue / adcResolution) * referenceVoltage;  // Calculate voltage at ADC pin
-  float batteryVoltage = voltageAtPin * dividerRatio;                  // Calculate the actual battery voltage
-  float correctedVoltage = batteryVoltage * f_batteryCalibrationFactor;
-  f_batteryVoltage = correctedVoltage;
 #endif
 }
 
@@ -358,34 +356,33 @@ void power_off_gyro(int sec) {
 }
 #endif
 
+
 void power_off(double sec) {
-  if (t_battery > 0) {
-    if (!b_is_charging) {
-      if (f_batteryVoltage > lowBatteryThreshold) {
-        i_lowBatteryCount = 0;
-      }
+  if (!b_is_charging) {
+    if (f_batteryVoltage > lowBatteryThreshold) {
+      i_lowBatteryCount = 0;
+    }
 
-      if (f_batteryVoltage < lowBatteryThreshold) {
-        i_lowBatteryCount++;
-        i_lowBatteryCountTotal++;
-      }
+    if (f_batteryVoltage < lowBatteryThreshold) {
+      i_lowBatteryCount++;
+      i_lowBatteryCountTotal++;
+    }
 
-      if (i_lowBatteryCount > 50) {
-        shut_down_low_battery(f_batteryVoltage);
-        return;
-      }
+    if (i_lowBatteryCount > 50) {
+      shut_down_low_battery(f_batteryVoltage);
+      return;
+    }
 
-      if (sec == -1) {
-        t_power_off = millis();
-        //Serial.println("power off timer reset");
-      }
-      if (sec > 0) {
-        double d_timeleft = sec - (millis() - t_power_off) / 1000;
-        //Serial.print(d_timeleft);
-        //Serial.println(" seconds to power off");
-        if (d_timeleft <= 0 && b_autoSleep == true) {
-          shut_down_now();
-        }
+    if (sec == -1) {
+      t_power_off = millis();
+      //Serial.println("power off timer reset");
+    }
+    if (sec > 0) {
+      double d_timeleft = sec - (millis() - t_power_off) / 1000;
+      //Serial.print(d_timeleft);
+      //Serial.println(" seconds to power off");
+      if (d_timeleft <= 0 && b_autoSleep == true) {
+        shut_down_now();
       }
     }
   }

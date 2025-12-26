@@ -40,8 +40,8 @@
 //#define CHECKBATTERY
 
 //SCALE CONFIG
-#define LINE1 (char*)"FW: 6.1.1"
-#define LINE2 (char*)"Built-date(YYYYMMDD): 20251224"
+#define LINE1 (char*)"FW: 6.1.2"
+#define LINE2 (char*)"Built-date(YYYYMMDD): 20251226"
 #define LINE3 (char*)"S/N: DRS073"  //序列号 073
 #define VERSION /*版本号 version*/ LINE1, /*编译日期*/ LINE2, /*序列号*/ LINE3
 //About info
@@ -200,6 +200,7 @@
 
 
 #ifdef V7_5
+#define PCB_VER (char*)"PCB: 7.5"
 #define HW_SPI
 #define SH1106
 #define ADS1232ADC
@@ -221,7 +222,7 @@
 #define SCALE_DOUT 11
 #define SCALE_SCLK 12
 #define SCALE_PDWN 13
-#define MPU_PWR_CTRL 14
+#define ACC_PWR_CTRL 14
 #define MPU_INT 21
 #define SCALE2_DOUT 47
 #define SCALE2_SCLK 48
@@ -258,7 +259,7 @@
 #define OLED_CS 10
 #define OLED_SDIN 11
 #define OLED_SCLK 12
-#define MPU_PWR_CTRL 13
+#define ACC_PWR_CTRL 13
 #define NTC 14
 #define MPU_INT 21
 #define SCALE2_DOUT 47

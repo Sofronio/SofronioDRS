@@ -56,7 +56,10 @@
   2025-12-24 v6.1.1 fix - menu option in v6.1 was not loaded
                     fix - changed the project file from .ino to proper .cpp
                     fix - text not veritical centered in menu
-
+  2025-12-24 v6.1.2 fix - auto minuts container doesn't turn off when PositiveTolerance is reached
+                    add - auto rename firmware, e.g. DRS_FW_6_1_2_PCB_8_1_202512261410.bin
+                    fix - support for PCB V7_5
+                    fix - update power off and updatebattery
 
   todo
   开机M进入菜单
@@ -843,16 +846,17 @@ void setup() {
       b_button_pressed = false;  // Reset mark
     }
   }
-#if !defined(V0)
+#if defined(PWR_CTRL)
   gpio_hold_dis((gpio_num_t)PWR_CTRL);  // Disable GPIO hold mode for the specified pin, allowing it to be controlled
   pinMode(PWR_CTRL, OUTPUT);            // Set the PWR_CTRL pin as an output pin
   digitalWrite(PWR_CTRL, HIGH);         // Set the PWR_CTRL pin to HIGH, turning on the connected device or circuit
+  Serial.println("PWR_CTRL = HIGH");
 #endif
-#if defined(V7_3) || defined(V7_4) || defined(V7_5)
-  gpio_hold_dis((gpio_num_t)MPU_PWR_CTRL);  // Disable GPIO hold mode for the specified pin, allowing it to be controlled
-  pinMode(MPU_PWR_CTRL, OUTPUT);            // Set the PWR_CTRL pin as an output pin
-  digitalWrite(MPU_PWR_CTRL, HIGH);         // Set the PWR_CTRL pin to HIGH, turning on the connected device or circuit
-  Serial.println("MPU_PWR_CTRL = HIGH");
+#if defined(ACC_PWR_CTRL)
+  gpio_hold_dis((gpio_num_t)ACC_PWR_CTRL);  // Disable GPIO hold mode for the specified pin, allowing it to be controlled
+  pinMode(ACC_PWR_CTRL, OUTPUT);            // Set the PWR_CTRL pin as an output pin
+  digitalWrite(ACC_PWR_CTRL, HIGH);         // Set the PWR_CTRL pin to HIGH, turning on the connected device or circuit
+  Serial.println("ACC_PWR_CTRL = HIGH");
 #endif
 
 #ifdef ESP32
@@ -1789,7 +1793,7 @@ void pureScale() {
 
     if (!b_minus_container_button) {
       //自动减去容器重量
-      if (f_weight_container >= 1 && f_displayedValue >= f_weight_container - NegativeTolerance && f_weight_smooth <= f_weight_container + PositiveTolerance) {
+      if (f_weight_container >= 1 && f_displayedValue >= f_weight_container - NegativeTolerance && f_displayedValue <= f_weight_container + PositiveTolerance) {
         // calculate difference between scale value and container value
         f_displayedValue = f_displayedValue - f_weight_container;
         b_minus_container = true;
@@ -2165,6 +2169,7 @@ void serialCommand() {
     }
 
     if (inputString.startsWith("v")) {  //电压
+      updateBattery(BATTERY_PIN);
       Serial.print("Battery Voltage:");
       Serial.print(f_batteryVoltage);
 #ifndef ADS1115ADC
