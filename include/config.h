@@ -15,7 +15,6 @@
 #define SUUID_DECENTSCALE "fff0"
 
 //#define ESPNOW
-#define V8_1
 #define THREE_LINE
 #define WIFIOTA
 
