@@ -39,9 +39,9 @@
 //#define CHECKBATTERY
 
 //SCALE CONFIG
-#define LINE1 (char*)"FW: 6.1.2"
-#define LINE2 (char*)"Built-date(YYYYMMDD): 20251226"
-#define LINE3 (char*)"S/N: DRS073"  //序列号 073
+#define LINE1 (char*)"FW: 6.1.3"
+#define LINE2 (char*)"Built-date(YYYYMMDD): 20260626"
+#define LINE3 (char*)"S/N: DRS074"  //序列号 073
 #define VERSION /*版本号 version*/ LINE1, /*编译日期*/ LINE2, /*序列号*/ LINE3
 //About info
 #define FIRMWARE_VER LINE1
