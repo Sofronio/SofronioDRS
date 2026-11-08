@@ -9,6 +9,11 @@ void drawButtonBox();
 void resetTracking();
 void resetStableOutput();
 
+//Web UI / WiFi（定义在 webui.h）
+void startHotspot();
+void joinWiFi();
+void webuiStop();
+
 //砝码选项（中英双语）
 const char *weights_zh[] = { "退出", "50克", "100克", "200克", "500克", "1000克" };
 const char *weights_en[] = { "Exit", "50g", "100g", "200g", "500g", "1000g" };
@@ -89,6 +94,8 @@ Menu menuConnectionsBack = { "上一级", NULL, NULL, &menuConnections };
 Menu menuBle = { "蓝牙", toggleBle, NULL, &menuConnections };
 Menu menuHeartbeat = { "心跳检测", toggleHeartbeat, NULL, &menuConnections };
 Menu menuBleButtons = { "BLE按键", toggleBleButtons, NULL, &menuConnections };
+Menu menuHotspot = { "新建热点", startHotspot, NULL, &menuConnections };
+Menu menuJoinWiFi = { "加入WiFi", joinWiFi, NULL, &menuConnections };
 Menu menuWiFiUpdate = { "WiFi升级", wifiUpdate, NULL, &menuConnections };
 
 Menu menuDisplayBack = { "上一级", NULL, NULL, &menuDisplay };
@@ -106,7 +113,7 @@ Menu menuDeviceInfo = { "设备信息", showDeviceInfo, NULL, &menuInfo };
 
 Menu *scaleMenu[] = { &menuScaleBack, &menuCalibrate, &menuDriftComp, &menuContainer, &menuSamples };
 Menu *containerMenu[] = { &menuContainerBack, &menuRecordContainer, &menuClearContainer, &menuAutoSubtract };
-Menu *connectionsMenu[] = { &menuConnectionsBack, &menuBle, &menuHeartbeat, &menuBleButtons, &menuWiFiUpdate };
+Menu *connectionsMenu[] = { &menuConnectionsBack, &menuBle, &menuHeartbeat, &menuBleButtons, &menuHotspot, &menuJoinWiFi, &menuWiFiUpdate };
 Menu *displayMenu[] = { &menuDisplayBack, &menuBuzzer, &menuFlipScreen, &menuTimeOnTop, &menuLanguage };
 Menu *powerMenu[] = { &menuPowerBack, &menuAutoSleep, &menuQuickBoot };
 Menu *infoMenu[] = { &menuInfoBack, &menuDeviceInfo };
@@ -144,6 +151,8 @@ const MenuNameText menuNameTexts[] = {
   { "蓝牙", "Bluetooth" },
   { "心跳检测", "Heartbeat" },
   { "BLE按键", "BLE Buttons" },
+  { "新建热点", "Start Hotspot" },
+  { "加入WiFi", "Join WiFi" },
   { "WiFi升级", "WiFi Update" },
   { "蜂鸣器", "Buzzer" },
   { "屏幕翻转", "Flip Screen" },
@@ -550,6 +559,7 @@ void wifiUpdate() {
   buzzer.off();
 #endif
   delay(1000);
+  if (b_webuiEnabled) webuiStop();  //两个服务都用 80 端口
   wifiOta();
   b_menu = false;
 }

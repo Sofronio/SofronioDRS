@@ -185,6 +185,48 @@ Frame checksums, examples and response formats are documented in
 
 ---
 
+## Web UI (manual start)
+
+Two entries under `Connections`:
+
+- **Start Hotspot** — SoftAP only: SSID `D.R.S`, password `12345678`,
+  address `http://192.168.1.1` (also `http://drs.local` via mDNS).
+- **Join WiFi** — provision a home network:
+  1. The scale scans networks, then raises the `D.R.S` hotspot.
+  2. Open `http://192.168.1.1`, pick an SSID, enter the password, press **Join WiFi**.
+  3. The scale connects in AP+STA while keeping the hotspot for the test.
+  4. On success the hotspot closes after ~10 s; open `http://drs.local` or the IP shown on the
+     page. On failure the hotspot stays open and the page shows the error, so you can retry.
+  5. Credentials are stored in NVS; use **Switch to hotspot** on the page to return to AP-only
+     mode at any time (or choose **Start Hotspot** at the next boot).
+
+USB development helpers: `web` starts/stops the hotspot; `joinwifi` starts the join flow.
+WiFi upgrade stops the Web UI automatically (both use port 80).
+
+Stop the Web UI from the page (`Stop Web UI`) or with `web`; the hotspot also closes
+automatically after a successful STA connection.
+
+Features:
+
+- Live weight and status over WebSocket (with HTTP polling fallback).
+- **Weighing ↔ extraction mode switch** from the page; the extraction timer only operates in extraction mode.
+- Calibrate with an actual weight (same engine as BLE `0x30` / USB `calw`).
+- Guided calibration (select weight, zero capture, place weight) **without touching the scale buttons**.
+- Record / clear container weight.
+- Virtual buttons: tare, extraction timer start/stop/reset, espresso/pour-over, display rotation,
+  menu show/hide, device info, power off.
+- Logo management: upload PNG/JPG (converted in the browser), **download the current logo**
+  (custom or firmware built-in), **restore the built-in logo**, preview on the scale.
+  Logos are stored in LittleFS (`/logo.xbm`) and used as the boot logo.
+- When WiFi is active, the OLED shows the openscale WiFi icon to the left of the BLE indicator
+  (first row in weighing mode, second row in extraction mode).
+- JS plugins: upload `.js` files, stored in LittleFS `/plugins/`, automatically loaded into the
+  page with a small `ScaleWeb` API. See [webui-plugins.md](docs/webui-plugins.md) and
+  [docs/examples/plugin-example.js](docs/examples/plugin-example.js).
+
+> The AP is an open trusted-LAN interface (no authentication beyond the AP password). Use it on a
+> trusted network only.
+
 ## USB serial commands
 
 Connect at **115200** baud and send newline-terminated ASCII commands:
@@ -199,6 +241,8 @@ Connect at **115200** baud and send newline-terminated ASCII commands:
 | `vf <V>` | Battery voltage calibration |
 | `v` | Print battery voltage |
 | `tare` / `set` / `cal` / `ota` / `beep` / `reset` | Scale controls |
+| `web` | Start / stop the Web UI hotspot (development helper) |
+| `joinwifi` | Start the Join WiFi provisioning flow (development helper) |
 
 See [calibration.md](docs/calibration.md) for details.
 
@@ -210,6 +254,17 @@ See [calibration.md](docs/calibration.md) for details.
 - [Menu structure](docs/menu-structure.md) — **Chinese**
 - [Behaviour notes & regression checklist](docs/behavior-notes.md) — **Chinese**
 - [Device calibration backup](docs/device-calibration-backup.md) — **Chinese**
+- [Web UI plan / implementation notes](docs/webui-plan.md) — browser calibration/container/logo/plugins — **Chinese**
+- [Web UI plugins](docs/webui-plugins.md) — `ScaleWeb` API and example plugin — **Chinese**
+- AI-oriented notes (Chinese/English): [repo map](docs/AI_REPO_MAP.md), [build](docs/AI_BUILD_NOTES.md),
+  [protocol](docs/AI_PROTOCOL_NOTES.md), [storage](docs/AI_STORAGE_NOTES.md), [display](docs/AI_DISPLAY_NOTES.md)
+
+## Firmware size / fonts
+
+Chinese UI fonts are generated at build time from the characters actually used by the source:
+`tools/gen_subset_fonts.py` writes `include/generated_fonts.h`. This replaced the three full
+GB2312 U8g2 fonts (~759 KB) with ~23 KB of subsets, cutting the binary from 2.09 MB to ~1.36 MB.
+After changing UI strings, rebuild (the PlatformIO `pre:` hook regenerates the header).
 
 ---
 

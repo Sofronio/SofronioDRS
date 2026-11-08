@@ -52,7 +52,25 @@ Pour-over cup removed (>50g): 302.5g -> 0.3g, timer stopped
 - 菜单名称、校准/容器/设备信息/调试/关机/WiFi升级界面均支持双语。
 - 菜单采用固定行距/紧凑布局，128x64 下不裁切（测试方法见 `docs/menu-structure.md`）。
 
-## 6. BLE
+## 6. Web UI / 插件
+
+- `连接 → 新建热点`：仅 AP（`D.R.S` / `12345678`，`192.168.1.1`）。
+- `连接 → 加入WiFi`：先扫描网络，再开热点；网页选择 SSID/输入密码后设备以 AP+STA 连接。
+  - 成功：约 10 秒后关闭热点，只保留 STA；用 `http://drs.local` 或页面显示的 IP 访问。
+  - 失败：热点保留，页面显示错误，可重试；`Switch to hotspot` 可随时回到纯热点。
+  - 凭据保存在 NVS（Preferences，命名空间 `wifi`），不打印密码。
+  - STA 掉线会自动恢复热点作为回退。
+- 网页支持：实时重量、纯称重/萃取切换、萃取计时、按实际重量校准、引导式校准（不碰按键）、容器记录、去皮/模式/旋转/菜单/设备信息/关机。
+- 计时器只在萃取模式可用；纯称重模式下网页上的计时按钮禁用。
+- Logo：PNG/JPG 在浏览器 Canvas 转 128×64 1-bit，上传到 LittleFS `/logo.xbm`；可下载当前 Logo、恢复固件内置 Logo、在秤上预览，并作为开机 Logo。
+- WiFi 开启时 OLED 显示 openscale 同款 WiFi 图标：位于 BLE 图标左侧；纯称重第一排，萃取模式第二排。
+- Web UI/WiFi 开启期间双击不再关机（使用网页 Power Off），避免配网/调试误触。
+- WebSocket 状态推送 4Hz，并在客户端队列满时跳帧，避免 “Too many messages queued”。
+- Logo XBM 格式必须为行优先、每行 16 字节、LSB 在左（与 `u8g2.drawXBMP` 一致）；网页提供 PNG/XBM 下载与内置 Logo 恢复。
+- 插件：LittleFS `/plugins/*.js`，网页自动加载，提供 `ScaleWeb` JS API（见 `webui-plugins.md`）。
+- 网页控制与 WiFi 升级共用 80 端口，启动 WiFi 升级前会自动停止网页服务。
+
+## 7. BLE
 
 - **开机键位选择 BLE**：长按左键 O/SET 开机 = BLE 开；长按右键 []/TARE 开机 = BLE 关。
   复位/USB 上电（非按键唤醒）使用菜单保存的设置（默认开）。
@@ -63,7 +81,7 @@ Pour-over cup removed (>50g): 302.5g -> 0.3g, timer stopped
 - 自定义命令：`0x30` 按实际重量校准、`0x31` 记录容器，应答 `0xB0`/`0xB1`。
   详见 [calibration.md](calibration.md)。
 
-## 7. 回归测试清单
+## 8. 回归测试清单
 
 - [ ] 长按去皮切换意式/手冲：读数不清零
 - [ ] 短按去皮：正常清零

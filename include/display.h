@@ -50,10 +50,12 @@ U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2(U8G2_R0, /* clock=*/OLED_SCL, /* data=*
 //设置字体 https://github.com/olikraus/u8g2/wiki/fntlistall
 //中文字体 https://github.com/larryli/u8g2_wqy
 //#include "u8g2_soso.h"
+//按项目实际用字生成的子集字体（tools/gen_subset_fonts.py，构建时自动更新）
+#include "generated_fonts.h"
 #define FONT_L u8g2_font_logisoso24_tn
-#define FONT_M u8g2_font_wqy16_t_gb2312//u8g2_font_wqy16_t_gb2312  //u8g2_font_wqy16_t_gb2312 u8g2_font_fub14_tr soso16
-#define FONT_S u8g2_font_wqy14_t_gb2312//u8g2_font_wqy14_t_gb2312  //u8g2_font_wqy14_t_gb2312 u8g2_font_helvR12_tr soso14
-#define FONT_XS u8g2_font_wqy12_t_gb2312
+#define FONT_M u8g2_font_wqy16_subset
+#define FONT_S u8g2_font_wqy14_subset
+#define FONT_XS u8g2_font_wqy12_subset
 #define FONT_EXTRACTION u8g2_font_fub14_tr
 //#define FONT_S FONT_M
 #define FONT_BATTERY u8g2_font_battery19_tn

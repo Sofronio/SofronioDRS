@@ -79,6 +79,18 @@
                   fix - boot tare uses current sample window (fast boot after SAMPLES=16)
                   fix - EEPROM settings version marker (avoid garbage settings on first run)
                   add - boot-time BLE switch: left/O = BLE on, right/[] = BLE off (reset uses saved)
+                  add - build-time CJK font subsetting (759KB -> 23KB, firmware -34%)
+                  add - Web UI (manual start via menu / USB 'web'): live weight, weighing/extraction
+                        switch, extraction-only timer, actual-weight and guided calibration without
+                        buttons, container, virtual buttons, logo upload/download/restore,
+                        JS plugin system (ScaleWeb API)
+                  add - WiFi icon (openscale www glyph) left of BLE icon when Web UI AP is on
+                  add - WiFi provisioning: Start Hotspot / Join WiFi (scan, AP+STA, drs.local,
+                        NVS credentials, AP closes after STA success, fallback to hotspot)
+                  fix - XBM logo packing matches u8g2 drawXBMP (row-major, 16B/row, LSB left)
+                  fix - logo upload accepts chunked bodies; add PNG download/export
+                  fix - WebSocket status throttled to 4 Hz with queue backpressure
+                  fix - double-click cannot power off while Web UI is active
                   rem - 4.2V voltage calibration menu entry (serial 'vf' remains)
                   rem - Debug Info menu entry (BLE 0x1E group=2 debug screen retained)
                   fix - custom commands moved from 0x1C/0x1D to 0x30/0x31 (no standard protocol conflict)
@@ -106,6 +118,7 @@
 #include "wifi_ota.h"
 #include "espnow.h"
 #include "menu.h"
+#include "webui.h"
 
 // 函数声明
 bool readBoolEEPROMWithValidation(int addr, bool defaultVal);
@@ -157,6 +170,7 @@ void drawTare();
 void drawBattery();
 void drawDebug();
 void drawAbout();
+void drawWifi();
 void drawDriftCompensationInfo();
 void chargingOLED(int perc, float voltage);
 
@@ -798,6 +812,11 @@ void buttonSet_DoubleClicked() {
     Serial.println("关闭调试信息");
     return;
   }
+  //Web UI 开启时禁止双击关机（避免配网/调试时误触），请用网页的 Power Off
+  if (b_webuiEnabled) {
+    Serial.println("Web UI active, not going to sleep. Use the web page to power off.");
+    return;
+  }
   //菜单/校准过程中禁止双击关机（无论BLE是否连接）
   if (b_menu || b_calibration) {
     Serial.println("Menu/calibration operating, not going to sleep.");
@@ -823,6 +842,11 @@ void buttonTare_DoubleClicked() {
     b_debug = false;
     b_suppressTareRelease = true;
     Serial.println("关闭调试信息");
+    return;
+  }
+  //Web UI 开启时禁止双击关机（避免配网/调试时误触），请用网页的 Power Off
+  if (b_webuiEnabled) {
+    Serial.println("Web UI active, not going to sleep. Use the web page to power off.");
     return;
   }
   //菜单/校准过程中禁止双击关机（无论BLE是否连接）
@@ -1080,6 +1104,8 @@ void setup() {
 
   Serial.println("EEPROM init success");
 
+  webuiSetupFS();  // LittleFS for logo / plugins
+
   button_init();
   linkSubmenus();
 #ifdef V0
@@ -1268,8 +1294,9 @@ void setup() {
   //   refreshOLED((char *)str_welcome.c_str(), FONT_EXTRACTION);
   u8g2.firstPage();
   do {
-    //u8g2.drawXBM(18, 9, 97, 46, image_logo);
-    u8g2.drawXBM(0, 0, 128, 64, image_logo);
+    //优先显示网页上传的 128x64 Logo，否则用内置图标
+    if (!drawStoredLogo())
+      u8g2.drawXBM(0, 0, 128, 64, image_logo);
   } while (u8g2.nextPage());
 
 if (GPIO_power_on_with != BATTERY_CHARGING) {
@@ -2633,6 +2660,8 @@ void handlePendingWeightCalibration() {
   Serial.println(new_cal);
   if (i_weightCalibrationSource == 1) {
     sendBleCalibrationResult((uint8_t)result, measured, new_cal);
+  } else if (i_weightCalibrationSource == 2) {
+    webuiAnnounceCalibration(result, measured, new_cal);
   }
 }
 
@@ -2701,6 +2730,8 @@ void handlePendingContainerRecord() {
   Serial.println(container);
   if (i_containerRecordSource == 1) {
     sendBleContainerResult((uint8_t)result, measured, container);
+  } else if (i_containerRecordSource == 2) {
+    webuiAnnounceContainer(result, measured, container);
   }
 }
 
@@ -2856,6 +2887,28 @@ void serialCommand() {
       //cal();                              //无有效读取，进入校准模式
     }
 
+
+    if (inputString == "web") {  //启动/关闭网页热点（开发/调试用；正常从菜单进入）
+      if (b_webuiEnabled) webuiStop(); else startHotspot();
+    }
+
+    if (inputString == "joinwifi") {  //启动“加入WiFi”流程（开发/调试用）
+      joinWiFi();
+    }
+
+    if (inputString == "logodump") {  //导出当前Logo的XBM十六进制（开发/调试用）
+      File lf = LittleFS.open("/logo.xbm", "r");
+      bool custom = (lf && lf.size() == 1024);
+      Serial.print("LOGO:");
+      Serial.print(custom ? "custom:" : "builtin:");
+      for (int i = 0; i < 1024; i++) {
+        int v = custom ? lf.read() : image_logo[i];
+        if (v < 16) Serial.print("0");
+        Serial.print(v, HEX);
+      }
+      Serial.println();
+      if (lf) lf.close();
+    }
 
     if (inputString.startsWith("ota")) {  //WiFi ota
       b_ota = true;
@@ -3030,6 +3083,7 @@ void loop() {
     if (pServer) pServer->disconnect(0);
   }
   serialCommand();
+  webuiProcessActions();
   if (b_weightCalibrationPending) {
     handlePendingWeightCalibration();
   }
@@ -3047,6 +3101,7 @@ void loop() {
     delay(300);
     reset();
   }
+  webuiLoop();
   if (b_ble_enabled)
     sendBleWeight();
   buttonSet.check();
@@ -3229,22 +3284,30 @@ void updateOled() {
   if (millis() > t_oled_refresh + i_oled_print_interval) {
     //达到设定的oled刷新频率后进行刷新
     t_oled_refresh = millis();
+    if (b_show_logo && millis() - t_show_logo >= 2500)
+      b_show_logo = false;
     u8g2.firstPage();
     do {
-      if (b_show_about) {
-        drawAbout();
-      } else {
-        if (b_debug)
-          drawDebug();
-        else if (b_extraction) {
-          drawExtrationScale();
+      bool logoDrawn = false;
+      if (b_show_logo)
+        logoDrawn = drawStoredLogo();
+      if (!logoDrawn) {
+        if (b_show_about) {
+          drawAbout();
         } else {
-          drawPureScale();
+          if (b_debug)
+            drawDebug();
+          else if (b_extraction) {
+            drawExtrationScale();
+          } else {
+            drawPureScale();
+          }
+          drawBattery();
+          drawButtonBox();
+          drawBle();
+          drawWifi();
+          drawTare();
         }
-        drawBattery();
-        drawButtonBox();
-        drawBle();
-        drawTare();
       }
       //drawDriftCompensationInfo();
     } while (u8g2.nextPage());
@@ -3260,7 +3323,7 @@ void drawPureScale() {
 #else
   u8g2.setDisplayRotation(applyFlipRotation(U8G2_R0));
 #endif
-  u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+  u8g2.setFont(FONT_XS);
   int x = 0;
   int y = 12;
   if (b_mode) {
@@ -3462,6 +3525,14 @@ void drawBle() {
   } else {
     u8g2.drawXBM(x_ble, y_ble, 10, 13, image_ble_disabled);
   }
+}
+
+//WiFi开启时显示图标（openscale 同款 www 图标），位于BLE图标左侧：
+//纯称重第一排，萃取模式第二排
+void drawWifi() {
+  if (!b_webuiEnabled) return;
+  u8g2.setFont(u8g2_font_open_iconic_www_1x_t);
+  u8g2.drawGlyph(96, b_extraction ? 34 : 10, 0x0051);
 }
 
 void drawTare() {

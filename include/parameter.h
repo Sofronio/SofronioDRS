@@ -185,6 +185,13 @@ bool b_bleResetPending = false; //收到0x1F重启命令，由主循环执行
 int i_language = 0;                     //0=中文, 1=English
 int i_samplesInUse = 1;                 //采样数 1/2/4/16（运行时+EEPROM保存）
 bool b_containerSubtractEnabled = true; //自动扣除容器重量总开关
+
+//Web UI（菜单手动启动）
+bool b_webuiEnabled = false;
+bool b_show_logo = false;
+unsigned long t_show_logo = 0;
+volatile int i_webAction = 0;      //WebAction enum value, consumed by main loop
+volatile int i_webActionParam = 0;
 bool b_bleInitialized = false;          //BLE协议栈是否已初始化
 unsigned long t_heartBeat = 0;          //最后一次BLE心跳时间
 unsigned long t_firstConnect = 0;       //本次BLE连接时间
