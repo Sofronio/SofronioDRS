@@ -1,5 +1,7 @@
 # SofronioDRS
 
+**English** | [中文说明 / Chinese](README_zh.md)
+
 ESP32-S3 coffee scale firmware with BLE, two weighing modes and a bilingual (English / Chinese) menu.
 
 This firmware runs on the **Decent HDS (Half Decent Scale) hardware** — the same board as the
@@ -250,6 +252,7 @@ See [calibration.md](docs/calibration.md) for details.
 
 ## Documentation
 
+- [中文说明 / Chinese README](README_zh.md)
 - [Calibration & container commands (BLE / USB)](docs/calibration.md) — **Chinese**
 - [Menu structure](docs/menu-structure.md) — **Chinese**
 - [Behaviour notes & regression checklist](docs/behavior-notes.md) — **Chinese**
