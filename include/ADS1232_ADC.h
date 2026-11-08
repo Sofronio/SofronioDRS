@@ -51,6 +51,21 @@ Note: ADS1232_ADC configuration values has been moved to file config.h
 
 #define SIGNAL_TIMEOUT 100
 
+//调试快照（校准逻辑使用）
+struct ADS1232DebugInfo {
+  unsigned long timestamp = 0;    //millis() snapshot time
+  long rawValue = 0;              //latest raw conversion
+  long smoothedValue = 0;         //filtered raw value (no tare offset, no calFactor)
+  long tareOffset = 0;            //current tare offset
+  float conversionTimeMs = 0;     //latest conversion interval
+  float sps = 0;                  //samples per second
+  int readIndex = 0;              //current dataset index
+  int samplesInUse = 1;           //averaging window
+  int validSamples = 0;           //real conversions in dataset since reset
+  bool dataOutOfRange = false;
+  bool signalTimeout = false;
+};
+
 class ADS1232_ADC {
 
 public:
@@ -93,6 +108,7 @@ public:
   void setReverseOutput();                    //reverse the output value
   void setChannelInUse(int channel);          //select channel from 0 or 1, channel 0 is default
   int getChannelInUse();                      //returns current channel number
+  ADS1232DebugInfo getDebugInfo();            //snapshot of current internal state (for calibration)
 
 protected:
   void conversion24bit();                     //if conversion is ready: returns 24 bit data and starts the next conversion
@@ -130,6 +146,8 @@ protected:
   bool signalTimeoutFlag = 0;
   bool reverseVal = 0;
   bool dataWaiting = 0;
+  int validSamples = 0;       //number of real conversions in dataset since reset
+  long lastRawValue = 0;      //latest stored raw conversion
 };
 
 #endif

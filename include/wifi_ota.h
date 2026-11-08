@@ -25,7 +25,7 @@ void onOTAProgress(size_t current, size_t final) {
     Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
     Serial.printf("Progress: %u%%\n", (current * 100) / final);
     char buffer[50];
-    snprintf(buffer, sizeof(buffer), "上传进度: %u%%", (current * 100) / final);
+    snprintf(buffer, sizeof(buffer), T("上传进度: %u%%", "Upload: %u%%"), (current * 100) / final);
     u8g2.firstPage();
     u8g2.setFont(FONT_S);
     do {
@@ -41,7 +41,7 @@ void onOTAEnd(bool success) {
     u8g2.firstPage();
     u8g2.setFont(FONT_S);
     do {
-      u8g2.drawUTF8(AC((char *)"升级成功"), AM(), (char *)"升级成功");
+      u8g2.drawUTF8(AC((char *)T("升级成功", "Update OK")), AM(), (char *)T("升级成功", "Update OK"));
     } while (u8g2.nextPage());
     delay(1000);
   } else {
@@ -49,7 +49,7 @@ void onOTAEnd(bool success) {
     u8g2.firstPage();
     u8g2.setFont(FONT_S);
     do {
-      u8g2.drawUTF8(AC((char *)"升级失败"), AM(), (char *)"升级失败");
+      u8g2.drawUTF8(AC((char *)T("升级失败", "Update failed")), AM(), (char *)T("升级失败", "Update failed"));
     } while (u8g2.nextPage());
     delay(1000);
   }
@@ -63,7 +63,7 @@ void wifiOta() {
   u8g2.firstPage();
   u8g2.setFont(FONT_S);
   do {
-    u8g2.drawUTF8(AC((char *)"开始升级"), AM(), (char *)"开始升级");
+    u8g2.drawUTF8(AC((char *)T("开始升级", "Starting update")), AM(), (char *)T("开始升级", "Starting update"));
   } while (u8g2.nextPage());
 
   WiFi.mode(WIFI_AP);
@@ -99,7 +99,7 @@ void wifiOta() {
     //u8g2.drawUTF8(AC((char *)"Please connect WiFi"), u8g2.getMaxCharHeight() + i_margin_top - 5, (char *)"Please connect WiFi");
 
     u8g2.drawUTF8(AC((char *)"WiFi: D.R.S"), u8g2.getMaxCharHeight() + i_margin_top - 5, (char *)"WiFi: D.R.S");
-    u8g2.drawUTF8(AC((char *)"密码: 12345678"), AM(), (char *)"密码: 12345678");
+    u8g2.drawUTF8(AC((char *)T("密码: 12345678", "Password: 12345678")), AM(), (char *)T("密码: 12345678", "Password: 12345678"));
     u8g2.drawUTF8(AC(trim(ver)), LCDHeight - i_margin_bottom + 5, trim(ver));
   } while (u8g2.nextPage());
 }

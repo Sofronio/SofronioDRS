@@ -247,12 +247,7 @@ void shut_down_now() {
 #else
   u8g2.setDisplayRotation(U8G2_R0);
 #endif
-#ifdef CHINESE
-  refreshOLED((char*)"关机", FONT_M);
-#endif
-#ifdef ENGLISH
-  refreshOLED((char*)"Off", FONT_M);
-#endif
+  refreshOLED((char*)T("关机", "Off"), FONT_M);
 #ifdef ESPNOW
   if (b_espnow) {
     b_power_off = 1;
@@ -270,7 +265,7 @@ void shut_down_now() {
 void shut_down_low_battery(float voltage) {
   Serial.print("Low battery, voltage:");
   Serial.println(voltage);
-  refreshOLED((char*)"Low battery", FONT_M);
+  refreshOLED((char*)T("电量低", "Low battery"), FONT_M);
 #ifdef ESPNOW
   if (b_espnow) {
     b_power_off = 1;
@@ -293,12 +288,7 @@ void shut_down_now_nobeep() {
 #else
   u8g2.setDisplayRotation(U8G2_R0);
 #endif
-#ifdef CHINESE
-  refreshOLED((char*)"关机", FONT_M);
-#endif
-#ifdef ENGLISH
-  refreshOLED((char*)"Off", FONT_M);
-#endif
+  refreshOLED((char*)T("关机", "Off"), FONT_M);
 #ifdef ESPNOW
   if (b_espnow) {
     b_power_off = 1;

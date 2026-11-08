@@ -60,6 +60,28 @@
                     add - auto rename firmware, e.g. DRS_FW_6_1_2_PCB_8_1_202512261410.bin
                     fix - support for PCB V7_5
                     fix - update power off and updatebattery
+  2026-11-08 add - calibration by provided actual weight via BLE (0x30) / USB (calw)
+                  add - record container weight via BLE (0x31) / USB (ctr)
+                  add - standard BLE commands: buzzer 0x1C, sample setting 0x1D,
+                        menu/about/debug 0x1E, reset 0x1F (中文界面)
+                  add - two-level categorized menu (Scale/Connections/Display/Power/Info),
+                        single toggle items, auto-subtract switch, sample setting,
+                        BLE/heartbeat/BLE-buttons/flip/time-on-top toggles
+                  add - Chinese/English language switch (EEPROM persisted)
+                  add - ADS1232 16-sample support + debug snapshot for calibration
+                  chg - menu calibration ported from openscale (stable raw capture,
+                        range/sign validation, post-calibration verification)
+                  chg - drift compensation state handling aligned with openscale
+                  add - pour-over: stop timer when cup is removed (>50g) after stable weight
+                  fix - device info returns to the Info submenu instead of the weighing screen
+                  fix - about/debug screens: double-click/long-press cannot power off
+                  fix - mode switch (long press Tare) and menu selection no longer tare on release
+                  fix - boot tare uses current sample window (fast boot after SAMPLES=16)
+                  fix - EEPROM settings version marker (avoid garbage settings on first run)
+                  rem - 4.2V voltage calibration menu entry (serial 'vf' remains)
+                  rem - Debug Info menu entry (BLE 0x1E group=2 debug screen retained)
+                  fix - custom commands moved from 0x1C/0x1D to 0x30/0x31 (no standard protocol conflict)
+                  fix - menu double-click no longer powers off when BLE connected
 
   todo
   开机M进入菜单
@@ -133,6 +155,7 @@ void drawBle();
 void drawTare();
 void drawBattery();
 void drawDebug();
+void drawAbout();
 void drawDriftCompensationInfo();
 void chargingOLED(int perc, float voltage);
 
@@ -141,6 +164,28 @@ void serialCommand();
 void sendBleWeight();
 void sendBleButton(int buttonNumber, int buttonShortPress);
 void sendBlePowerOff(int i_reason);
+
+// 实际重量校准
+int applyWeightCalibration(float known_mass, float &measured, float &new_cal);
+void handlePendingWeightCalibration();
+void sendBleCalibrationResult(uint8_t result, float measured, float new_cal);
+
+// 容器重量记录
+int applyContainerRecord(float &measured, float &container);
+void handlePendingContainerRecord();
+void sendBleContainerResult(uint8_t result, float measured, float container);
+
+// 屏幕翻转（菜单“屏幕翻转”开关）
+const u8g2_cb_t* applyFlipRotation(const u8g2_cb_t *base) {
+  if (!b_screenFlipped) return base;
+  if (base == U8G2_R0) return U8G2_R2;
+  if (base == U8G2_R2) return U8G2_R0;
+  if (base == U8G2_R1) return U8G2_R3;
+  if (base == U8G2_R3) return U8G2_R1;
+  return base;
+}
+
+#define BLE_HEARTBEAT_TIMEOUT_MS 5000
 
 // 调试函数
 #if defined(DEBUG) && defined(CHECKBATTERY)
@@ -197,14 +242,18 @@ void encodeWeight(float weight, byte &byte1, byte &byte2) {
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *pServer) {
     deviceConnected = true;
+    t_firstConnect = millis();
+    t_heartBeat = millis();
     Serial.println("Device connected");
   }
 
   void onDisconnect(BLEServer *pServer) {
     deviceConnected = false;
     Serial.println("Device disconnected, restarting advertising...");
-    // 断开后重新开始广告
-    pServer->startAdvertising();
+    if (b_ble_enabled) {
+      // 断开后重新开始广告（蓝牙已关闭时不广播）
+      pServer->startAdvertising();
+    }
   }
 };
 
@@ -268,10 +317,21 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         sofronio edit 2024-08-31
         031A Calibration
         031B WIFIOTA
+
+        标准协议命令（移植自openscale）
+        031C Buzzer            03 1C <00关 01开 02响>
+        031D Sample setting    03 1D <00=1 01=2 03=4 采样>
+        031E Menu/About/Debug  03 1E <group 00菜单 01设备信息 02调试> <00隐藏 01显示>
+        031F Reset             03 1F
+
+        自定义命令（避开标准命令号）
+        0330 Calibration by weight  03 30 <float32小端 实际重量g> XOR，应答 03 B0
+        0331 Record container       03 31 XOR，应答 03 B1
         
 */
 
   void onWrite(BLECharacteristic *pWriteCharacteristic) {
+    t_heartBeat = millis();  //任意写入都视为心跳
     Serial.print("Timer");
     Serial.print(millis());
     Serial.print(" onWrite counter:");
@@ -318,9 +378,126 @@ class MyCallbacks : public BLECharacteristicCallbacks {
             stopWatch.reset();
           }
         } else if (data[1] == 0x1A) {
-          Serial.println("Calibration via BLE");
+          //标准协议: 03 1A <mode>  00=手动校准, 01=智能校准（与openscale一致，智能校准默认禁用）
+          uint8_t calMode = (len >= 3) ? data[2] : 0;
+          Serial.println(calMode == 0 ? "Calibration via BLE (manual)" : "Calibration via BLE (smart)");
+          calibrationReturnToMenu = false;
+          i_cal_weight = 0;
+          i_calibration = calMode;
           i_button_cal_status = 1;
           b_calibration = true;
+          b_menu = false;
+        } else if (data[1] == 0x1C) {
+          //标准协议: 蜂鸣器 03 1C <00=关 / 01=开 / 02=响>
+          if (len < 3) {
+            Serial.println("蜂鸣器命令长度不足");
+          } else if (data[2] == 0x00) {
+            b_beep = false;
+            Serial.println("蜂鸣器: 关闭 (BLE)");
+          } else if (data[2] == 0x01) {
+            b_beep = true;
+            Serial.println("蜂鸣器: 开启 (BLE)");
+          } else if (data[2] == 0x02) {
+#ifdef BUZZER
+            buzzer.beep(1, BUZZER_DURATION);
+#endif
+            Serial.println("蜂鸣器: 鸣叫 (BLE)");
+          }
+        } else if (data[1] == 0x1D) {
+          //标准协议: 采样设置 03 1D <00=1 / 01=2 / 03=4 采样>
+          if (len < 3) {
+            Serial.println("采样设置命令长度不足");
+          } else if (data[2] == 0x00) {
+            i_samplesInUse = 1;
+            scale.setSamplesInUse(1);
+            Serial.println("采样数: 1 (BLE)");
+          } else if (data[2] == 0x01) {
+            i_samplesInUse = 2;
+            scale.setSamplesInUse(2);
+            Serial.println("采样数: 2 (BLE)");
+          } else if (data[2] == 0x03) {
+            i_samplesInUse = 4;
+            scale.setSamplesInUse(4);
+            Serial.println("采样数: 4 (BLE)");
+          } else {
+            Serial.println("采样设置: 未知参数 (BLE)");
+          }
+        } else if (data[1] == 0x1E) {
+          //标准协议: 菜单/设备信息/调试 显隐 03 1E <group> <show>
+          if (len < 4) {
+            Serial.println("显隐命令长度不足");
+          } else if (data[2] == 0x00) {
+            //菜单
+            b_show_about = false;
+            b_aboutFromMenu = false;
+            if (data[3] == 0x01) {
+              resetMenuToMain();
+              b_menu = true;
+              Serial.println("显示菜单 (BLE)");
+            } else {
+              b_menu = false;
+              resetMenuToMain();
+              Serial.println("隐藏菜单 (BLE)");
+            }
+          } else if (data[2] == 0x01) {
+            //设备信息
+            b_show_about = (data[3] != 0x00);
+            b_aboutFromMenu = false;
+            if (b_show_about) {
+              b_debug = false;
+              b_menu = false;
+              Serial.println("显示设备信息 (BLE)");
+            } else {
+              Serial.println("隐藏设备信息 (BLE)");
+            }
+          } else if (data[2] == 0x02) {
+            //调试信息（标准协议保留，菜单入口已移除）
+            b_debug = (data[3] != 0x00);
+            if (b_debug) {
+              b_show_about = false;
+              b_aboutFromMenu = false;
+              b_menu = false;
+              Serial.println("显示调试信息 (BLE)");
+            } else {
+              Serial.println("隐藏调试信息 (BLE)");
+            }
+          }
+        } else if (data[1] == 0x1F) {
+          //标准协议: 重启 03 1F
+          Serial.println("收到重启命令 (BLE)");
+          b_bleResetPending = true;
+        } else if (data[1] == 0x30) {
+          //0330 按实际重量校准（0x30为自定义命令区，避开标准协议的0x1C蜂鸣器）
+          //数据格式: 03 30 <float32 小端 实际重量(g)> XOR
+          Serial.println("Calibration with actual weight via BLE");
+          float known_mass = 0.0f;
+          if (len < 7 || !validateChecksum(data, len)) {
+            Serial.println("Invalid calibration packet");
+            sendBleCalibrationResult(CALIB_ERR_INVALID_WEIGHT, 0.0f, scale.getCalFactor());
+          } else {
+            memcpy(&known_mass, &data[2], sizeof(float));
+            if (isnan(known_mass) || known_mass <= 0.0f) {
+              Serial.println("Invalid calibration weight");
+              sendBleCalibrationResult(CALIB_ERR_INVALID_WEIGHT, 0.0f, scale.getCalFactor());
+            } else {
+              //在主循环中执行，避免阻塞BLE回调
+              f_weightCalibrationTarget = known_mass;
+              i_weightCalibrationSource = 1;
+              b_weightCalibrationPending = true;
+            }
+          }
+        } else if (data[1] == 0x31) {
+          //0331 记录当前重量为容器重量（0x31为自定义命令区，避开标准协议的0x1D采样设置）
+          //数据格式: 03 31 XOR（3字节，无负载）
+          Serial.println("Record container via BLE");
+          if (len < 3 || !validateChecksum(data, len)) {
+            Serial.println("Invalid container packet");
+            sendBleContainerResult(CONTAINER_ERR_INVALID, 0.0f, f_weight_container);
+          } else {
+            //在主循环中执行，避免阻塞BLE回调
+            i_containerRecordSource = 1;
+            b_containerRecordPending = true;
+          }
         }
 #ifdef WIFI
         else if (data[1] == 0x1B) {
@@ -423,8 +600,23 @@ void aceButtonHandleEvent(AceButton *button, uint8_t eventType, uint8_t buttonSt
 }
 
 
+//关闭设备信息界面（来自菜单时返回菜单）
+void closeAboutScreen() {
+  b_show_about = false;
+  b_suppressTareRelease = true;  //关闭用的这次按键释放不做去皮
+  if (b_aboutFromMenu) {
+    b_aboutFromMenu = false;
+    b_menu = true;  //回到进入前的菜单（信息子菜单）
+  }
+  Serial.println("关闭设备信息");
+}
+
 void buttonSet_Pressed() {
   Serial.println("Set button short pressed");
+  if (b_show_about) {  //设备信息界面：任意键关闭
+    closeAboutScreen();
+    return;
+  }
   if (b_menu) {
     navigateMenu(1);  // Navigate to next menu item
   } else {
@@ -465,6 +657,14 @@ void buttonSet_Pressed() {
 void buttonTARE_Released() {
   //trigger tare after released to avoid to judge where the tare should be placed.
   Serial.println("Tare button released");
+  //菜单选择动作的释放不触发去皮
+  if (b_suppressTareRelease) {
+    b_suppressTareRelease = false;
+    return;
+  }
+  //信息/调试界面、菜单、校准过程中不触发去皮
+  if (b_show_about || b_debug || b_menu || b_calibration)
+    return;
   if (!deviceConnected || b_btnFuncWhileConnected) {
     if (b_set_container) {
       t_tareByButton = millis();
@@ -493,8 +693,13 @@ void buttonTare_Pressed() {
   if (deviceConnected)
     sendBleButton(1, 0);
   Serial.println("Tare button short pressed");
+  if (b_show_about) {  //设备信息界面：任意键关闭
+    closeAboutScreen();
+    return;
+  }
   if (b_menu) {
-    selectMenu();  // Select current menu item
+    b_suppressTareRelease = true;  //本次按下的释放不做去皮
+    selectMenu();                  // Select current menu item
   } else {
     if (deviceConnected && millis() - t_shutdownFailBle < 1000)
       shut_down_now_nobeep();
@@ -581,44 +786,70 @@ void buttonMinus_Pressed() {
 
 void buttonSet_DoubleClicked() {
   Serial.println("Set button double clicked");
-  if (!deviceConnected && !b_menu && !b_calibration) {
-    Serial.println("Going to sleep now.");
-    sendBlePowerOff(1);
-    shut_down_now_nobeep();
-  } else {
-    if (deviceConnected) {
-      sendBlePowerOff(1);
-      Serial.println("BLE connected, going to sleep anyway.");
-      shut_down_now_nobeep();
-    }
-    if (b_menu)
-      Serial.println("Menu operating, not going to sleep.");
-    if (!b_menu)
-      sendBlePowerOff(0);
+  //设备信息/调试界面：关闭界面，绝不关机
+  if (b_show_about) {
+    closeAboutScreen();
+    return;
   }
+  if (b_debug) {
+    b_debug = false;
+    b_suppressTareRelease = true;
+    Serial.println("关闭调试信息");
+    return;
+  }
+  //菜单/校准过程中禁止双击关机（无论BLE是否连接）
+  if (b_menu || b_calibration) {
+    Serial.println("Menu/calibration operating, not going to sleep.");
+    return;
+  }
+  if (!deviceConnected) {
+    Serial.println("Going to sleep now.");
+  } else {
+    Serial.println("BLE connected, going to sleep anyway.");
+  }
+  sendBlePowerOff(1);
+  shut_down_now_nobeep();
 }
 
 void buttonTare_DoubleClicked() {
   Serial.println("Tare button double clicked");
-  if (!deviceConnected && !b_menu && !b_calibration) {
-    Serial.println("Going to sleep now.");
-    sendBlePowerOff(2);
-    shut_down_now_nobeep();
-  } else {
-    if (deviceConnected) {
-      t_shutdownFailBle = millis();
-      sendBlePowerOff(2);
-      Serial.println("BLE connected, going to sleep anyway.");
-      shut_down_now_nobeep();
-    }
-    if (b_menu)
-      Serial.println("Menu operating, not going to sleep.");
-    if (!b_menu)
-      sendBlePowerOff(0);
+  //设备信息/调试界面：关闭界面，绝不关机
+  if (b_show_about) {
+    closeAboutScreen();
+    return;
   }
+  if (b_debug) {
+    b_debug = false;
+    b_suppressTareRelease = true;
+    Serial.println("关闭调试信息");
+    return;
+  }
+  //菜单/校准过程中禁止双击关机（无论BLE是否连接）
+  if (b_menu || b_calibration) {
+    Serial.println("Menu/calibration operating, not going to sleep.");
+    return;
+  }
+  if (!deviceConnected) {
+    Serial.println("Going to sleep now.");
+  } else {
+    t_shutdownFailBle = millis();
+    Serial.println("BLE connected, going to sleep anyway.");
+  }
+  sendBlePowerOff(2);
+  shut_down_now_nobeep();
 }
 
 void buttonSet_LongPressed() {
+  if (b_show_about) {
+    closeAboutScreen();
+    return;
+  }
+  if (b_debug) {
+    b_debug = false;
+    b_suppressTareRelease = true;
+    Serial.println("关闭调试信息");
+    return;
+  }
   if (!b_menu) {
     Serial.println("Set button long pressed");
 #ifdef BUZZER
@@ -629,8 +860,10 @@ void buttonSet_LongPressed() {
     if (GPIO_power_on_with == BATTERY_CHARGING) {
       //change GPIO_power_on_with from BATTERY_CHARGING to enter scale loop
       GPIO_power_on_with = BUTTON_SET;
-      b_ble_enabled = true;
-      ble_init();
+      if (!b_ble_enabled) {  //避免重复初始化BLE
+        b_ble_enabled = true;
+        ble_init();
+      }
     }
     if (b_extraction) {
       //萃取模式下 长按回归普通模式
@@ -646,6 +879,18 @@ void buttonSet_LongPressed() {
 }
 
 void buttonTare_LongPressed() {
+  if (b_show_about) {
+    closeAboutScreen();
+    return;
+  }
+  if (b_debug) {
+    b_debug = false;
+    b_suppressTareRelease = true;
+    Serial.println("关闭调试信息");
+    return;
+  }
+  //长按用于切换意式/手冲或旋转屏幕，其释放不应触发去皮
+  b_suppressTareRelease = true;
   if (!b_menu) {
     Serial.println("Tare button long pressed");
 #ifdef BUZZER
@@ -722,7 +967,33 @@ void ble_init() {
   pService->start();
   // Start advertising
   pServer->getAdvertising()->start();
+  b_bleInitialized = true;
   Serial.println("Waiting for a client connection to notify...");
+}
+
+//菜单里的蓝牙开关：运行时启停广播（设置写入EEPROM）
+void bleSetEnabled(bool enabled) {
+  if (enabled == b_ble_enabled) return;
+  b_ble_enabled = enabled;
+  EEPROM.put(i_addr_bleEnabled, b_ble_enabled);
+  EEPROM.commit();
+  if (!enabled) {
+    //先置标志，避免断开回调重新开始广播
+    if (deviceConnected && pServer) {
+      pServer->disconnect(0);
+    }
+    if (pServer) {
+      pServer->getAdvertising()->stop();
+    }
+    Serial.println("蓝牙已关闭 (BLE off)");
+  } else {
+    if (!b_bleInitialized) {
+      ble_init();
+    } else if (pServer) {
+      pServer->getAdvertising()->start();
+    }
+    Serial.println("蓝牙已开启 (BLE on)");
+  }
 }
 
 void button_init() {
@@ -786,6 +1057,23 @@ void setup() {
     }
   }
 
+  //新版设置首次初始化：未初始化 EEPROM 的随机字节不能被当成有效设置
+  int settingsVersion = 0;
+  EEPROM.get(i_addr_settingsVersion, settingsVersion);
+  if (settingsVersion != SETTINGS_VERSION) {
+    i_language = 0;
+    b_ble_enabled = true;
+    b_containerSubtractEnabled = true;
+    i_samplesInUse = 1;
+    EEPROM.put(i_addr_language, i_language);
+    EEPROM.put(i_addr_bleEnabled, b_ble_enabled);
+    EEPROM.put(i_addr_containerSubtract, b_containerSubtractEnabled);
+    EEPROM.put(i_addr_samplesInUse, i_samplesInUse);
+    EEPROM.put(i_addr_settingsVersion, SETTINGS_VERSION);
+    EEPROM.commit();
+    Serial.println("EEPROM settings initialized (v1)");
+  }
+
   if (readBoolEEPROMWithValidation(i_addr_quickBoot, false))
         i_buttonBootDelay = 0;
 
@@ -813,10 +1101,8 @@ void setup() {
   Serial.println("GPIO_power_on_with = " + String(GPIO_power_on_with));
   if (GPIO_power_on_with == BATTERY_CHARGING)
     b_is_charging = true;
-  if (GPIO_power_on_with == BUTTON_SET)
-    b_ble_enabled = true;
-  else
-    b_ble_enabled = false;
+  //默认开启BLE（EEPROM可保存菜单里的蓝牙开关；原来只有SET键开机才开启）
+  b_ble_enabled = readBoolEEPROMWithValidation(i_addr_bleEnabled, true);
   while (true && GPIO_power_on_with > 0) {
     if (i_buttonBootDelay == 0){
       Serial.println("Quick boot. Powering on...");
@@ -994,6 +1280,8 @@ if (GPIO_power_on_with != BATTERY_CHARGING) {
   boolean _tare = true;  //电子秤初始化去皮，如果不想去皮则设为false
   //whether the scale will tare on start.
   scale.begin();
+  //开机去皮用 1 个采样，避免 SAMPLES=16 时启动变慢；启动后恢复用户采样设置
+  scale.setSamplesInUse(1);
   scale.start(stabilizingtime, _tare);
 
   EEPROM.get(INPUTCOFFEEPOUROVER_ADDRESS, INPUTCOFFEEPOUROVER);
@@ -1041,6 +1329,22 @@ if (GPIO_power_on_with != BATTERY_CHARGING) {
   b_timeOnTop = readBoolEEPROMWithValidation(i_addr_timeOnTop, false);
   b_btnFuncWhileConnected = readBoolEEPROMWithValidation(i_addr_btnFuncWhileConnected, false);
   b_autoSleep = readBoolEEPROMWithValidation(i_addr_autoSleep, true);
+  b_screenFlipped = readBoolEEPROMWithValidation(i_addr_screenFlipped, false);
+  //语言 / 蓝牙开关 / 自动扣除 / 采样数
+  EEPROM.get(i_addr_language, i_language);
+  if (i_language < 0 || i_language > 1) {
+    i_language = 0;
+    EEPROM.put(i_addr_language, i_language);
+    EEPROM.commit();
+  }
+  b_ble_enabled = readBoolEEPROMWithValidation(i_addr_bleEnabled, true);
+  b_containerSubtractEnabled = readBoolEEPROMWithValidation(i_addr_containerSubtract, true);
+  EEPROM.get(i_addr_samplesInUse, i_samplesInUse);
+  if (i_samplesInUse != 1 && i_samplesInUse != 2 && i_samplesInUse != 4 && i_samplesInUse != 16) {
+    i_samplesInUse = 1;
+    EEPROM.put(i_addr_samplesInUse, i_samplesInUse);
+    EEPROM.commit();
+  }
   
   //读取模式
   EEPROM.get(i_addr_mode, b_mode);
@@ -1094,7 +1398,7 @@ if (GPIO_power_on_with != BATTERY_CHARGING) {
   if (digitalRead(BUTTON_SET) == TRIGGER_LEVEL && digitalRead(BUTTON_TARE) == TRIGGER_LEVEL) {
 
     b_menu = true;
-    refreshOLED((char *)"设置选项", FONT_M);
+    refreshOLED((char *)T("设置选项", "Setup"), FONT_M);
     delay(1000);
   }
 
@@ -1206,6 +1510,10 @@ if (GPIO_power_on_with != BATTERY_CHARGING) {
   Serial.print(F("\tContainer: "));
   Serial.print(f_weight_container);
   Serial.print("g");
+  Serial.print("\tSamples: ");
+  Serial.print(i_samplesInUse);
+  Serial.print("\tLang: ");
+  Serial.print(i_language);
   Serial.print(F("\tDefaultPourOver: "));
   Serial.print(INPUTCOFFEEPOUROVER);
   Serial.print("g");
@@ -1270,7 +1578,7 @@ if (GPIO_power_on_with != BATTERY_CHARGING) {
   scale.setCalFactor(f_calibration_value);  //设置偏移量
   //set the calibration value
   //scale.setSamplesInUse(sample[i_sample]);  //设置灵敏度
-  scale.setSamplesInUse(1);  //设置灵敏度
+  scale.setSamplesInUse(i_samplesInUse);  //设置灵敏度（菜单/EEPROM）
 
 #ifdef CHECKBATTERY
   f_up_battery = analogRead(BATTERY_LEVEL) * f_vref / (pow(2, ADC_BIT) - 1) * f_divider_factor;
@@ -1286,6 +1594,20 @@ if (GPIO_power_on_with != BATTERY_CHARGING) {
 }
 
 void pourOverScale() {
+  static float f_pourStableWeight = 0.0f;
+  static float f_pourLastWeight = 0.0f;
+  static unsigned long t_pourStableStart = 0;
+  static bool b_pourStable = false;
+  const float POUR_CUP_REMOVED_G = 50.0f;  //稳态后移出超过该重量 -> 停止计时
+
+  //计时器归零时复位手冲停止检测
+  if (!stopWatch.isRunning() && stopWatch.elapsed() == 0) {
+    b_pourStable = false;
+    f_pourStableWeight = 0.0f;
+    f_pourLastWeight = 0.0f;
+    t_pourStableStart = 0;
+  }
+
   if (f_weight_dose < 3)
     f_weight_dose = INPUTCOFFEEPOUROVER;
   //checkBrew
@@ -1295,6 +1617,10 @@ void pourOverScale() {
     buzzer.beep(1, 100);
 #endif
     b_ready_to_brew = false;
+    b_pourStable = false;
+    f_pourStableWeight = 0.0f;
+    f_pourLastWeight = 0.0f;
+    t_pourStableStart = 0;
   }
   static bool newDataReady = 0;
   static bool scaleStable = 0;
@@ -1322,6 +1648,33 @@ void pourOverScale() {
       // print result to serial monitor
     }
 
+    //手冲：重量稳定后，若移出（下降）超过50g，停止计时
+    if (stopWatch.isRunning()) {
+      if (fabsf(f_displayedValue - f_pourLastWeight) <= 0.2f) {
+        if (t_pourStableStart == 0)
+          t_pourStableStart = millis();
+        if (!b_pourStable && millis() - t_pourStableStart >= 1000) {
+          b_pourStable = true;
+          f_pourStableWeight = f_displayedValue;
+          Serial.print("Pour-over stable: ");
+          Serial.print(f_pourStableWeight);
+          Serial.println("g");
+        }
+      } else {
+        f_pourLastWeight = f_displayedValue;
+        t_pourStableStart = 0;
+      }
+      if (b_pourStable && f_displayedValue < f_pourStableWeight - POUR_CUP_REMOVED_G) {
+        stopWatch.stop();
+        b_pourStable = false;
+        Serial.print("Pour-over cup removed (>50g): ");
+        Serial.print(f_pourStableWeight);
+        Serial.print("g -> ");
+        Serial.print(f_displayedValue);
+        Serial.println("g, timer stopped");
+      }
+    }
+
     if (millis() > t_flow_rate + 1000) {
       f_flow_rate = f_displayedValue - f_flow_rate_last_weight;
       if (f_flow_rate < 0)
@@ -1346,6 +1699,10 @@ void pourOverScale() {
     t_ready_to_brew = millis();
     b_weight_quick_zero = false;
     t_tareStatus = millis();
+    b_pourStable = false;
+    f_pourStableWeight = 0.0f;
+    f_pourLastWeight = 0.0f;
+    t_pourStableStart = 0;
   }
   if (b_weight_quick_zero)
     f_displayedValue = 0.0;
@@ -1742,6 +2099,8 @@ float applyStableOutput(float current_value) {
 void pureScale() {
   static bool b_newDataReady = 0;
   static bool b_scaleStable = 0;
+  static int f_similar_diff_count = 0;
+  static float f_last_diff = 0.0;
   float f_weight_adc_raw = 0;
   if (scale.update()) b_newDataReady = true;
 
@@ -1755,9 +2114,6 @@ void pureScale() {
     
     // 2. If difference is small (0.01g-0.1g), accumulate to continuous compensation
     if (fabs(current_diff) > 0.01 && fabs(current_diff) < f_maxDriftCompensation) {
-      static int f_similar_diff_count = 0;
-      static float f_last_diff = current_diff;
-      
       // Check if continuous same direction change
       if ((f_last_diff * current_diff) > 0) {  // Same direction
         f_similar_diff_count++;
@@ -1790,9 +2146,9 @@ void pureScale() {
       
       f_last_diff = current_diff;
     } else {
-      // Difference too large or too small, reset detection
-      static int f_similar_diff_count = 0;
+      // Difference too large or too small, reset detection（与openscale一致）
       f_similar_diff_count = 0;
+      f_last_diff = 0.0;
     }
     
     // 3. Apply continuous temperature compensation
@@ -1811,7 +2167,10 @@ void pureScale() {
     // Update adaptive tracking (use temperature compensated value)
     updateAdaptiveTracking(tracking_compensated);
 
-    if (!b_minus_container_button) {
+    if (!b_containerSubtractEnabled) {
+      //自动扣除总开关关闭
+      b_minus_container = false;
+    } else if (!b_minus_container_button) {
       //自动减去容器重量
       if (f_weight_container >= 1 && f_displayedValue >= f_weight_container - NegativeTolerance && f_displayedValue <= f_weight_container + PositiveTolerance) {
         // calculate difference between scale value and container value
@@ -2167,6 +2526,218 @@ void debugData() {
 }
 #endif  // defined(DEBUG) && defined(CHECKBATTERY)
 
+// ---------- 实际重量校准 ----------
+// 用户提供秤上砝码/物体的实际重量，根据当前读数换算出新的校准系数并写入EEPROM。
+// 原理: 新系数 = 旧系数 × 当前读数 / 实际重量
+// (getNewCalibration 内部完成计算并立即应用新系数)
+int applyWeightCalibration(float known_mass, float &measured, float &new_cal) {
+  measured = 0.0f;
+  new_cal = scale.getCalFactor();
+  if (isnan(known_mass) || known_mass <= 0.0f) {
+    Serial.println("Calibration failed: invalid target weight");
+    return CALIB_ERR_INVALID_WEIGHT;
+  }
+
+  // 1. 使用16个采样取平均，与菜单中的“智能校准”保持一致
+  int samples_before = scale.getSamplesInUse();
+  scale.setSamplesInUse(16);
+  scale.refreshDataSet();  //阻塞，等待数据集填满
+  float measured_first = scale.getData();
+
+  // 2. 再收集约250ms的数据做稳定性检查
+  unsigned long t_stable = millis();
+  while (millis() - t_stable < 250) {
+    scale.update();
+    yield();
+  }
+  measured = scale.getData();
+
+  if (fabs(measured) < 5.0f) {  //与菜单校准一致：小于5g视为没有砝码
+    scale.setSamplesInUse(samples_before);
+    Serial.println("Calibration failed: no weight detected");
+    return CALIB_ERR_NO_WEIGHT;
+  }
+  if (fabs(measured - measured_first) > 0.5f) {
+    scale.setSamplesInUse(samples_before);
+    Serial.println("Calibration failed: reading unstable");
+    return CALIB_ERR_UNSTABLE;
+  }
+
+  // 3. 计算并应用新的校准系数（与openscale相同的校验规则，允许负系数但校验符号）
+  float old_cal = scale.getCalFactor();
+  long rawDelta = (long)lroundf(measured * old_cal);  //原始计数差（tare偏移抵消）
+  float candidate = (float)rawDelta / known_mass;
+  CalibrationRejectReason reason =
+    validateCalibrationCandidateBasics(known_mass, rawDelta, candidate);
+  if (reason != CAL_REJECT_NONE) {
+    scale.setSamplesInUse(samples_before);
+    Serial.print("Calibration failed: ");
+    Serial.println(calibrationRejectReasonText(reason));
+    return CALIB_ERR_OUT_OF_RANGE;
+  }
+  scale.setCalFactor(candidate);
+  float verified = scale.getData();
+  reason = validateCalibrationVerification(known_mass, verified);
+  if (reason != CAL_REJECT_NONE) {
+    scale.setCalFactor(old_cal);  //回滚
+    scale.setSamplesInUse(samples_before);
+    Serial.print("Calibration failed: ");
+    Serial.println(calibrationRejectReasonText(reason));
+    return CALIB_ERR_OUT_OF_RANGE;
+  }
+  new_cal = candidate;
+
+  // 4. 写入EEPROM
+  f_calibration_value = new_cal;
+  EEPROM.put(i_addr_calibration_value, f_calibration_value);
+#if defined(ESP8266) || defined(ESP32) || defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_ARCH_MBED_RP2040)
+  if (!EEPROM.commit()) {
+    scale.setSamplesInUse(samples_before);
+    Serial.println("Calibration failed: EEPROM write failed");
+    return CALIB_ERR_STORE_FAIL;
+  }
+#endif
+
+  scale.setSamplesInUse(samples_before);
+  //旧的漂移补偿/跟踪偏移基于旧系数，清零
+  f_driftCompensation = 0.0f;
+  resetTracking();
+  resetStableOutput();
+
+  Serial.print("Calibration OK: measured=");
+  Serial.print(measured);
+  Serial.print("g\ttarget=");
+  Serial.print(known_mass);
+  Serial.print("g\tnewCalFactor=");
+  Serial.println(new_cal);
+  return CALIB_OK;
+}
+
+// 处理挂起的实际重量校准（USB/BLE共用）
+void handlePendingWeightCalibration() {
+  b_weightCalibrationPending = false;
+  float measured = 0.0f;
+  float new_cal = 0.0f;
+  int result = applyWeightCalibration(f_weightCalibrationTarget, measured, new_cal);
+  Serial.print("Weight calibration result: ");
+  Serial.print(result);
+  Serial.print("\tmeasured: ");
+  Serial.print(measured);
+  Serial.print("g\tnew cal factor: ");
+  Serial.println(new_cal);
+  if (i_weightCalibrationSource == 1) {
+    sendBleCalibrationResult((uint8_t)result, measured, new_cal);
+  }
+}
+
+// ---------- 容器重量记录 ----------
+// 把秤上当前重量记录为"容器重量"并写入EEPROM，之后称豆/称粉时自动扣除。
+// 与菜单“自动扣除设置→设置容器重量”功能一致。
+int applyContainerRecord(float &measured, float &container) {
+  measured = 0.0f;
+  container = f_weight_container;
+
+  // 1. 使用16个采样取平均
+  int samples_before = scale.getSamplesInUse();
+  scale.setSamplesInUse(16);
+  scale.refreshDataSet();  //阻塞，等待数据集填满
+  float measured_first = scale.getData();
+
+  // 2. 再收集约250ms的数据做稳定性检查
+  unsigned long t_stable = millis();
+  while (millis() - t_stable < 250) {
+    scale.update();
+    yield();
+  }
+  measured = scale.getData();
+
+  if (fabs(measured) < 1.0f) {  //小于1g视为没有容器（纸杯约3g）
+    scale.setSamplesInUse(samples_before);
+    Serial.println("Container record failed: no container detected");
+    return CONTAINER_ERR_NO_WEIGHT;
+  }
+  if (fabs(measured - measured_first) > 0.5f) {
+    scale.setSamplesInUse(samples_before);
+    Serial.println("Container record failed: reading unstable");
+    return CONTAINER_ERR_UNSTABLE;
+  }
+
+  // 3. 写入EEPROM
+  f_weight_container = measured;
+  EEPROM.put(i_addr_container, f_weight_container);
+#if defined(ESP8266) || defined(ESP32) || defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_ARCH_MBED_RP2040)
+  if (!EEPROM.commit()) {
+    scale.setSamplesInUse(samples_before);
+    Serial.println("Container record failed: EEPROM write failed");
+    return CONTAINER_ERR_STORE_FAIL;
+  }
+#endif
+
+  scale.setSamplesInUse(samples_before);
+  container = f_weight_container;
+  Serial.print("Container recorded: ");
+  Serial.print(container);
+  Serial.println("g");
+  return CONTAINER_OK;
+}
+
+// 处理挂起的容器记录（USB/BLE共用）
+void handlePendingContainerRecord() {
+  b_containerRecordPending = false;
+  float measured = 0.0f;
+  float container = f_weight_container;
+  int result = applyContainerRecord(measured, container);
+  Serial.print("Container record result: ");
+  Serial.print(result);
+  Serial.print("\tmeasured: ");
+  Serial.print(measured);
+  Serial.print("g\tcontainer: ");
+  Serial.println(container);
+  if (i_containerRecordSource == 1) {
+    sendBleContainerResult((uint8_t)result, measured, container);
+  }
+}
+
+// BLE回应（通过FFF4 notify）:
+// 03 B1 <status> <float32 小端 实测重量(g)> <float32 小端 容器重量(g)> XOR
+// 共12字节，XOR为前11字节的异或
+void sendBleContainerResult(uint8_t result, float measured, float container) {
+  if (!deviceConnected || pReadCharacteristic == nullptr)
+    return;
+  uint8_t data[12];
+  data[0] = modelByte;
+  data[1] = 0xB1;
+  data[2] = result;
+  memcpy(&data[3], &measured, sizeof(float));
+  memcpy(&data[7], &container, sizeof(float));
+  uint8_t checksum = 0;
+  for (int i = 0; i < 11; i++)
+    checksum ^= data[i];
+  data[11] = checksum;
+  pReadCharacteristic->setValue(data, sizeof(data));
+  pReadCharacteristic->notify();
+}
+
+// BLE回应（通过FFF4 notify）:
+// 03 B0 <status> <float32 小端 实测重量(g)> <float32 小端 新校准系数> XOR
+// 共12字节，XOR为前11字节的异或
+void sendBleCalibrationResult(uint8_t result, float measured, float new_cal) {
+  if (!deviceConnected || pReadCharacteristic == nullptr)
+    return;
+  uint8_t data[12];
+  data[0] = modelByte;
+  data[1] = 0xB0;
+  data[2] = result;
+  memcpy(&data[3], &measured, sizeof(float));
+  memcpy(&data[7], &new_cal, sizeof(float));
+  uint8_t checksum = 0;
+  for (int i = 0; i < 11; i++)
+    checksum ^= data[i];
+  data[11] = checksum;
+  pReadCharacteristic->setValue(data, sizeof(data));
+  pReadCharacteristic->notify();
+}
+
 void serialCommand() {
   if (Serial.available()) {
     String inputString = Serial.readStringUntil('\n');
@@ -2235,6 +2806,11 @@ void serialCommand() {
 #endif
     }
 
+    if (inputString == "ctr") {  //记录当前重量为容器重量
+      i_containerRecordSource = 0;
+      b_containerRecordPending = true;
+    }
+
     if (inputString.startsWith("cv ")) {  //set scale calibration value
       f_calibration_value = inputString.substring(3).toFloat();
       EEPROM.put(i_addr_calibration_value, f_calibration_value);
@@ -2255,8 +2831,22 @@ void serialCommand() {
     //   setSample();
     // }
 
-    if (inputString.startsWith("cal")) {  //校准
-      b_calibration = true;               //让按钮进入校准状态3
+    if (inputString.startsWith("calw")) {  //按实际重量校准: calw <实际重量g>
+      float known_mass = inputString.substring(4).toFloat();
+      if (known_mass > 0) {
+        f_weightCalibrationTarget = known_mass;
+        i_weightCalibrationSource = 0;
+        b_weightCalibrationPending = true;
+      } else {
+        Serial.println("Usage: calw <actual weight in grams>, e.g. \"calw 500\"");
+        Serial.print("Current reading: ");
+        Serial.print(scale.getData());
+        Serial.println("g");
+      }
+    }
+
+    if (inputString == "cal") {  //校准
+      b_calibration = true;      //让按钮进入校准状态3
       //cal();                              //无有效读取，进入校准模式
     }
 
@@ -2426,7 +3016,31 @@ void loop() {
   } else {
     power_off(15);  //power off after 15 minutes
   }
+  //心跳检测：连接后超过5秒没有任何写入则断开（与openscale一致）
+  if (deviceConnected && b_requireHeartBeat &&
+      millis() - t_firstConnect > BLE_HEARTBEAT_TIMEOUT_MS &&
+      millis() - t_heartBeat > BLE_HEARTBEAT_TIMEOUT_MS) {
+    Serial.println("Heartbeat timeout, disconnecting BLE client");
+    if (pServer) pServer->disconnect(0);
+  }
   serialCommand();
+  if (b_weightCalibrationPending) {
+    handlePendingWeightCalibration();
+  }
+  if (b_containerRecordPending) {
+    handlePendingContainerRecord();
+  }
+  if (b_bleResetPending) {  //BLE 0x1F 重启
+    b_bleResetPending = false;
+    u8g2.setFont(FONT_M);
+    u8g2.firstPage();
+    do {
+      u8g2.drawUTF8(AC((char *)T("重启中", "Restarting")), AM() - 5,
+                    (char *)T("重启中", "Restarting"));
+    } while (u8g2.nextPage());
+    delay(300);
+    reset();
+  }
   if (b_ble_enabled)
     sendBleWeight();
   buttonSet.check();
@@ -2611,17 +3225,21 @@ void updateOled() {
     t_oled_refresh = millis();
     u8g2.firstPage();
     do {
-      if (b_debug)
-        drawDebug();
-      else if (b_extraction) {
-        drawExtrationScale();
+      if (b_show_about) {
+        drawAbout();
       } else {
-        drawPureScale();
+        if (b_debug)
+          drawDebug();
+        else if (b_extraction) {
+          drawExtrationScale();
+        } else {
+          drawPureScale();
+        }
+        drawBattery();
+        drawButtonBox();
+        drawBle();
+        drawTare();
       }
-      drawBattery();
-      drawButtonBox();
-      drawBle();
-      drawTare();
       //drawDriftCompensationInfo();
     } while (u8g2.nextPage());
   }
@@ -2632,9 +3250,9 @@ void drawPureScale() {
   u8g2.setFontMode(1);
   u8g2.setDrawColor(1);
 #ifdef ROTATION_180
-  u8g2.setDisplayRotation(U8G2_R2);
+  u8g2.setDisplayRotation(applyFlipRotation(U8G2_R2));
 #else
-  u8g2.setDisplayRotation(U8G2_R0);
+  u8g2.setDisplayRotation(applyFlipRotation(U8G2_R0));
 #endif
   u8g2.setFont(u8g2_font_wqy12_t_gb2312);
   int x = 0;
@@ -2642,19 +3260,19 @@ void drawPureScale() {
   if (b_mode) {
     if (b_minus_container) {
       if (!b_minus_container_button)
-        u8g2.drawUTF8(x, y, TEXT_ESPRESSO_AUTO_TARE_CONTAINER);
+        u8g2.drawUTF8(x, y, (char *)T("意式模式 *", "Espresso *"));
       else
-        u8g2.drawUTF8(x, y, TEXT_ESPRESSO_MANUAL_TARE_CONTAINER);
+        u8g2.drawUTF8(x, y, (char *)T("意式模式 *", "Espresso *"));
     } else
-      u8g2.drawUTF8(x, y, TEXT_ESPRESSO);
+      u8g2.drawUTF8(x, y, (char *)T("意式模式", "Espresso"));
   } else {
     if (b_minus_container) {
       if (!b_minus_container_button)
-        u8g2.drawUTF8(x, y, TEXT_POUROVER_AUTO_TARE_CONTAINER);
+        u8g2.drawUTF8(x, y, (char *)T("手冲模式 *", "Pour Over *"));
       else
-        u8g2.drawUTF8(x, y, TEXT_POUROVER_MANUAL_TARE_CONTAINER);
+        u8g2.drawUTF8(x, y, (char *)T("手冲模式 *", "Pour Over *"));
     } else
-      u8g2.drawUTF8(x, y, TEXT_POUROVER);
+      u8g2.drawUTF8(x, y, (char *)T("手冲模式", "Pour Over"));
   }
 
   u8g2.setFont(FONT_L);
@@ -2662,6 +3280,14 @@ void drawPureScale() {
   x = AC(trim(c_weight));
   y = AM();
   u8g2.drawUTF8(x, y + 3, trim(c_weight));
+
+  //计时显示（“时间置顶”开关：顶部/底部）
+  if (stopWatch.elapsed() > 0) {
+    const char *tstr = sec2sec(stopWatch.elapsed());
+    u8g2.setFont(FONT_EXTRACTION);
+    int ty = b_timeOnTop ? u8g2.getMaxCharHeight() : LCDHeight - 2;
+    u8g2.drawUTF8(AR(tstr), ty, (char *)tstr);
+  }
 }
 
 void drawExtrationScale() {
@@ -2676,9 +3302,9 @@ void drawExtrationScale() {
   if (i_display_rotation == 0) {
     u8g2.setFontDirection(0);
 #ifdef ROTATION_180
-    u8g2.setDisplayRotation(U8G2_R2);
+    u8g2.setDisplayRotation(applyFlipRotation(U8G2_R2));
 #else
-    u8g2.setDisplayRotation(U8G2_R0);
+    u8g2.setDisplayRotation(applyFlipRotation(U8G2_R0));
 #endif
 #ifdef THREE_LINE
     u8g2.setFont(FONT_EXTRACTION);
@@ -2741,9 +3367,9 @@ void drawExtrationScale() {
   //////////////////旋转效果
   if (i_display_rotation == 1) {
 #ifdef ROTATION_180
-    u8g2.setDisplayRotation(U8G2_R3);
+    u8g2.setDisplayRotation(applyFlipRotation(U8G2_R3));
 #else
-    u8g2.setDisplayRotation(U8G2_R1);
+    u8g2.setDisplayRotation(applyFlipRotation(U8G2_R1));
 #endif
     u8g2.setFontDirection(0);
     u8g2.setFont(FONT_S);
@@ -2751,9 +3377,9 @@ void drawExtrationScale() {
     y = u8g2.getMaxCharHeight() + Margin_Top - 5 + 1;
     //00 ESP
     if (b_mode)
-      u8g2.drawUTF8(0, y, TEXT_ESPRESSO);
+      u8g2.drawUTF8(0, y, (char *)T("意式模式", "Espresso"));
     else
-      u8g2.drawUTF8(0, y, TEXT_POUROVER);
+      u8g2.drawUTF8(0, y, (char *)T("手冲模式", "Pour Over"));
 
     u8g2.setFont(FONT_EXTRACTION);
     //01 粉重
@@ -2878,22 +3504,27 @@ void drawBattery() {
 long t_debug = 0;
 void drawDebug() {
   if (b_debug) {
-    char bleText[20];
+#ifdef ROTATION_180
+    u8g2.setDisplayRotation(applyFlipRotation(U8G2_R2));
+#else
+    u8g2.setDisplayRotation(applyFlipRotation(U8G2_R0));
+#endif
+    char bleText[24];
     if (b_ble_enabled) {
       if (deviceConnected) {
-        snprintf(bleText, sizeof(bleText), "BLE connected");
+        snprintf(bleText, sizeof(bleText), "%s", T("蓝牙已连接", "BLE connected"));
       } else {
-        snprintf(bleText, sizeof(bleText), "BLE enabled");
+        snprintf(bleText, sizeof(bleText), "%s", T("蓝牙已开启", "BLE enabled"));
       }
     } else {
-      snprintf(bleText, sizeof(bleText), "BLE disabled");
+      snprintf(bleText, sizeof(bleText), "%s", T("蓝牙已关闭", "BLE disabled"));
     }
 
-    char chargingText[20];
+    char chargingText[24];
     if (digitalRead(BATTERY_CHARGING) == TRIGGER_LEVEL)  //low for charging
-      snprintf(chargingText, sizeof(chargingText), "Charging");
+      snprintf(chargingText, sizeof(chargingText), "%s", T("充电中", "Charging"));
     else
-      snprintf(chargingText, sizeof(chargingText), "Not charging");
+      snprintf(chargingText, sizeof(chargingText), "%s", T("未充电", "Not charging"));
 
     char batteryText[10];
     float voltage = f_batteryVoltage;
@@ -2909,31 +3540,66 @@ void drawDebug() {
     char gpioText[10];
     snprintf(gpioText, sizeof(gpioText), "GPIO:%d", i_wakeupPin);
 #if defined(ACC_MPU6050) || defined(ACC_BMA400)
-    char gyroText[10];
-    snprintf(gyroText, sizeof(gyroText), "Gyro:%.1f", gyro_z());
+    char gyroText[16];
+    snprintf(gyroText, sizeof(gyroText), T("陀螺:%.1f", "Gyro:%.1f"), gyro_z());
 #endif
     char weightText[10];
     snprintf(weightText, sizeof(weightText), "%.1fg", f_displayedValue);
 
-    //display
-    u8g2.setFont(u8g2_font_6x13_tr);
+    //display（使用中文字体）
+    u8g2.setFont(FONT_XS);
     int lineHeight = 12;
-    u8g2.drawStr(-54, lineHeight, LINE1);
+    u8g2.drawUTF8(-54, lineHeight, LINE1);
     if (b_gyroEnabled) {
-      u8g2.drawStr(0, lineHeight * 2, (char *)trim(gpioText));
+      u8g2.drawUTF8(0, lineHeight * 2, (char *)trim(gpioText));
     }
 #if defined(ACC_MPU6050) || defined(ACC_BMA400)
-    u8g2.drawStr(0, lineHeight * 3, (char *)trim(gyroText));
+    u8g2.drawUTF8(0, lineHeight * 3, (char *)trim(gyroText));
 #endif
-    u8g2.drawStr(0, lineHeight * 4, (char *)trim(chargingText));
-    u8g2.drawStr(0, lineHeight * 5, (char *)trim(bleText));
+    u8g2.drawUTF8(0, lineHeight * 4, (char *)trim(chargingText));
+    u8g2.drawUTF8(0, lineHeight * 5, (char *)trim(bleText));
 
-    u8g2.drawStr(55, lineHeight, (char *)trim(batteryText));
-    u8g2.drawStr(55, lineHeight * 2, (char *)trim(voltageText));
+    u8g2.drawUTF8(55, lineHeight, (char *)trim(batteryText));
+    u8g2.drawUTF8(55, lineHeight * 2, (char *)trim(voltageText));
 
-    u8g2.drawStr(AR((char *)trim(weightText)), lineHeight * 2, (char *)trim(weightText));
-    u8g2.drawStr(AR(sec2sec(stopWatch.elapsed())), lineHeight * 3, sec2sec(stopWatch.elapsed()));
+    u8g2.drawUTF8(AR((char *)trim(weightText)), lineHeight * 2, (char *)trim(weightText));
+    u8g2.drawUTF8(AR(sec2sec(stopWatch.elapsed())), lineHeight * 3, sec2sec(stopWatch.elapsed()));
   }
+}
+
+//设备信息界面（BLE 0x1E group=1），中文显示
+void drawAbout() {
+#ifdef ROTATION_180
+  u8g2.setDisplayRotation(applyFlipRotation(U8G2_R2));
+#else
+  u8g2.setDisplayRotation(applyFlipRotation(U8G2_R0));
+#endif
+  u8g2.setFontMode(1);
+  u8g2.setDrawColor(1);
+  u8g2.setFont(FONT_XS);
+  char line[32];
+  int lineHeight = 12;
+  u8g2.drawUTF8(AC((char *)T("设备信息", "Device Info")), lineHeight,
+                (char *)T("设备信息", "Device Info"));
+  const char *fw = LINE1;
+  if (strncmp(fw, "FW: ", 4) == 0)
+    fw += 4;
+  snprintf(line, sizeof(line), T("固件:%s", "Firmware:%s"), fw);
+  u8g2.drawUTF8(0, lineHeight * 2 + 2, line);
+#ifdef PCB_VER
+  const char *pcb = PCB_VER;
+  if (strncmp(pcb, "PCB: ", 5) == 0)
+    pcb += 5;
+  snprintf(line, sizeof(line), "PCB:%s", pcb);
+#else
+  snprintf(line, sizeof(line), "PCB:?");
+#endif
+  u8g2.drawUTF8(0, lineHeight * 3 + 2, line);
+  const char *sn = LINE3;
+  if (strncmp(sn, "S/N: ", 5) == 0)
+    sn += 5;
+  snprintf(line, sizeof(line), T("序列号:%s", "Serial:%s"), sn);
+  u8g2.drawUTF8(0, lineHeight * 4 + 2, line);
 }
 
 void drawDriftCompensationInfo() {

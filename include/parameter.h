@@ -175,6 +175,65 @@ bool b_calibration = false;  //校准标识
 bool b_ble_enabled = false;
 int i_calibration = 0;       //0 for manual cal, 1 for smart cal
 
+//BLE 标准命令 0x1E / 0x1F
+bool b_show_about = false;      //显示设备信息界面（0x1E group=1）
+bool b_aboutFromMenu = false;   //设备信息由菜单进入，退出时回到菜单
+bool b_suppressTareRelease = false; //菜单选择用的右键按下，其释放不触发去皮
+bool b_bleResetPending = false; //收到0x1F重启命令，由主循环执行
+
+//语言与菜单开关（EEPROM保存）
+int i_language = 0;                     //0=中文, 1=English
+int i_samplesInUse = 1;                 //采样数 1/2/4/16（运行时+EEPROM保存）
+bool b_containerSubtractEnabled = true; //自动扣除容器重量总开关
+bool b_bleInitialized = false;          //BLE协议栈是否已初始化
+unsigned long t_heartBeat = 0;          //最后一次BLE心跳时间
+unsigned long t_firstConnect = 0;       //本次BLE连接时间
+
+//language helper: runtime 0=中文 / 1=English
+inline const char* T(const char* zh, const char* en) {
+  return (i_language == 0) ? zh : en;
+}
+
+//校准诊断（移植自openscale）
+bool b_calibrationInvalid = false;
+char c_calibrationStatus[32] = "ok";
+float f_lastCalibrationCandidate = 0.0f;
+float f_lastCalibrationVerifiedWeight = 0.0f;
+long i_lastCalibrationZeroRaw = 0;
+long i_lastCalibrationLoadRaw = 0;
+long i_lastCalibrationRawDelta = 0;
+long i_lastCalibrationSpread = 0;
+bool calibrationReturnToMenu = false;
+
+//实际重量校准（USB: calw <g> / BLE: 0x1C）
+//用户提供秤上砝码的实际重量，固件根据当前读数换算出新的校准系数并写入EEPROM
+bool b_weightCalibrationPending = false;  //挂起标志，由主循环处理
+float f_weightCalibrationTarget = 0.0;    //用户提供的实际重量(g)
+int i_weightCalibrationSource = 0;        //0=USB串口, 1=BLE
+
+//实际重量校准结果状态码（BLE回应中的status字节）
+enum WeightCalibrationResult {
+  CALIB_OK = 0,                  //校准成功并已保存
+  CALIB_ERR_INVALID_WEIGHT = 1,  //提供的重量无效（<=0或非数字）
+  CALIB_ERR_NO_WEIGHT = 2,       //秤上检测不到砝码（读数<5g）
+  CALIB_ERR_UNSTABLE = 3,        //读数不稳定，未写入
+  CALIB_ERR_OUT_OF_RANGE = 4,    //计算出的校准系数无效
+  CALIB_ERR_STORE_FAIL = 5       //EEPROM写入失败
+};
+
+//容器重量记录（USB: ctr / BLE: 0x1D）
+bool b_containerRecordPending = false;  //挂起标志，由主循环处理
+int i_containerRecordSource = 0;        //0=USB串口, 1=BLE
+
+//容器重量记录结果状态码（BLE回应中的status字节）
+enum ContainerRecordResult {
+  CONTAINER_OK = 0,                //记录成功并已保存
+  CONTAINER_ERR_INVALID = 1,       //命令帧无效（长度不足或校验失败）
+  CONTAINER_ERR_NO_WEIGHT = 2,     //秤上检测不到容器（读数<1g）
+  CONTAINER_ERR_UNSTABLE = 3,      //读数不稳定，未写入
+  CONTAINER_ERR_STORE_FAIL = 4     //EEPROM写入失败
+};
+
 //bool b_set_sample = false;              //开机菜单 设置采样数
 bool b_show_info = false;               //开机菜单 显示信息
 bool b_set_container = false;           //开机菜单 设置称豆容器重量
@@ -242,6 +301,13 @@ int i_addr_enableWifiOnBoot = i_addr_btnFuncWhileConnected + sizeof(b_btnFuncWhi
 int i_addr_autoSleep = i_addr_enableWifiOnBoot + sizeof(b_wifiOnBoot);
 int i_addr_quickBoot = i_addr_autoSleep + sizeof(b_autoSleep);//b_quickBoot
 int i_addr_driftCompensation = i_addr_quickBoot + sizeof(b_quickBoot);//f_maxDriftCompensation
+//新增地址（追加在末尾，保持旧地址兼容）
+int i_addr_language = i_addr_driftCompensation + sizeof(f_maxDriftCompensation);  //int i_language
+int i_addr_bleEnabled = i_addr_language + sizeof(i_language);                     //bool b_ble_enabled
+int i_addr_containerSubtract = i_addr_bleEnabled + sizeof(b_ble_enabled);         //bool b_containerSubtractEnabled
+int i_addr_samplesInUse = i_addr_containerSubtract + sizeof(b_containerSubtractEnabled);  //int i_samplesInUse
+int i_addr_settingsVersion = i_addr_samplesInUse + sizeof(i_samplesInUse);        //int 设置版本标记
+#define SETTINGS_VERSION 1
 
 
 #endif

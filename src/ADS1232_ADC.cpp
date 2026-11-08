@@ -345,8 +345,10 @@ void ADS1232_ADC::conversion24bit()  //read 24 bit data, store in dataset and st
   if (data > 0) {
     convRslt++;
     dataSampleSet[readIndex] = (long)data;
-    if (doTare) {      
-      if (tareTimes < DATA_SET) {
+    lastRawValue = (long)data;
+    if (validSamples < samplesInUse + IGN_HIGH_SAMPLE + IGN_LOW_SAMPLE) validSamples++;
+    if (doTare) {
+      if (tareTimes < samplesInUse) {  //use current window (fast boot with 1 sample)
         tareTimes++;
       } else {
         tareOffset = smoothedData();
@@ -417,7 +419,7 @@ void ADS1232_ADC::disableTareTimeout() {
 }
 
 long ADS1232_ADC::getSettlingTime() {
-  long st = getConversionTime() * DATA_SET;
+  long st = getConversionTime() * samplesInUse;
   return st;
 }
 
@@ -443,6 +445,7 @@ void ADS1232_ADC::setSamplesInUse(int samples) {
         dataSampleSet[r] = lastSmoothedData;
       }
       readIndex = 0;
+      validSamples = 0;  //wait for real conversions after window change
     }
   }
 }
@@ -455,6 +458,25 @@ int ADS1232_ADC::getSamplesInUse() {
 //resets index for dataset
 void ADS1232_ADC::resetSamplesIndex() {
   readIndex = 0;
+  validSamples = 0;
+  dataOutOfRange = 0;
+}
+
+//snapshot of current internal state
+ADS1232DebugInfo ADS1232_ADC::getDebugInfo() {
+  ADS1232DebugInfo info;
+  info.timestamp = millis();
+  info.rawValue = lastRawValue;
+  info.smoothedValue = smoothedData();  //raw filtered value, tare offset NOT applied
+  info.tareOffset = tareOffset;
+  info.conversionTimeMs = conversionTime / 1000.0f;
+  info.sps = conversionTime > 0 ? 1000000.0f / conversionTime : 0.0f;
+  info.readIndex = readIndex;
+  info.samplesInUse = samplesInUse;
+  info.validSamples = validSamples;
+  info.dataOutOfRange = dataOutOfRange;
+  info.signalTimeout = signalTimeoutFlag;
+  return info;
 }
 
 //Fill the whole dataset up with new conversions, i.e. after a reset/restart (this function is blocking once started)

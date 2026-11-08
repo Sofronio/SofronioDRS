@@ -27,7 +27,9 @@ Note that you can also overide (reducing) the number of samples in use at any ti
 #define ADS1231_ADC_CONFIG_h
 
 //number of samples in moving average dataset, value must be 1, 2, 4, 8, 16, 32, 64 or 128.
-#define SAMPLES 					1		//default value: 16
+//Note: setSamplesInUse() can only use values <= SAMPLES. Keep 16 so runtime
+//sample settings (menu / BLE 0x1D: 1/2/4/16) and calibration capture (16) work.
+#define SAMPLES 					16		//default value: 16
 
 //adds extra sample(s) to the dataset and ignore peak high/low sample, value must be 0 or 1.
 #define IGN_HIGH_SAMPLE 			0		//default value: 1
