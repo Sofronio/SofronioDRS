@@ -78,6 +78,7 @@
                   fix - mode switch (long press Tare) and menu selection no longer tare on release
                   fix - boot tare uses current sample window (fast boot after SAMPLES=16)
                   fix - EEPROM settings version marker (avoid garbage settings on first run)
+                  add - boot-time BLE switch: left/O = BLE on, right/[] = BLE off (reset uses saved)
                   rem - 4.2V voltage calibration menu entry (serial 'vf' remains)
                   rem - Debug Info menu entry (BLE 0x1E group=2 debug screen retained)
                   fix - custom commands moved from 0x1C/0x1D to 0x30/0x31 (no standard protocol conflict)
@@ -1101,8 +1102,14 @@ void setup() {
   Serial.println("GPIO_power_on_with = " + String(GPIO_power_on_with));
   if (GPIO_power_on_with == BATTERY_CHARGING)
     b_is_charging = true;
-  //默认开启BLE（EEPROM可保存菜单里的蓝牙开关；原来只有SET键开机才开启）
-  b_ble_enabled = readBoolEEPROMWithValidation(i_addr_bleEnabled, true);
+  //开机按键选择BLE：左键 O/SET = 开，右键 []/TARE = 关；
+  //复位/USB 上电（非按键唤醒）使用菜单保存的设置（默认开）
+  if (GPIO_power_on_with == BUTTON_SET)
+    b_ble_enabled = true;
+  else if (GPIO_power_on_with == BUTTON_TARE)
+    b_ble_enabled = false;
+  else
+    b_ble_enabled = readBoolEEPROMWithValidation(i_addr_bleEnabled, true);
   while (true && GPIO_power_on_with > 0) {
     if (i_buttonBootDelay == 0){
       Serial.println("Quick boot. Powering on...");
@@ -1337,7 +1344,6 @@ if (GPIO_power_on_with != BATTERY_CHARGING) {
     EEPROM.put(i_addr_language, i_language);
     EEPROM.commit();
   }
-  b_ble_enabled = readBoolEEPROMWithValidation(i_addr_bleEnabled, true);
   b_containerSubtractEnabled = readBoolEEPROMWithValidation(i_addr_containerSubtract, true);
   EEPROM.get(i_addr_samplesInUse, i_samplesInUse);
   if (i_samplesInUse != 1 && i_samplesInUse != 2 && i_samplesInUse != 4 && i_samplesInUse != 16) {
