@@ -19,7 +19,18 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes / 更新日志.
 
 - **BLE Decent Scale protocol** — weight notifications, tare, timer, LED/power, calibration;
   plus vendor commands for weight-based calibration and container recording.
-- **Two weighing modes** — pour-over and espresso, with extraction timer UI.
+- **Two coffee-making modes** — **pour-over** and **espresso**. Weigh the coffee grounds
+  first and use that weight as the dose for extraction; select the coffee mode with a long
+  press of right `[]` in weighing mode.
+- **Two weighing modes** — **pure weighing** and **extraction**. Pure weighing is for dosing
+  the coffee grounds, container/tare work and everyday weighing; a short press of left `O`
+  enters extraction mode with the current reading as the dose.
+- **Pour-over extraction** — starts the timer automatically when the first liquid weight
+  appears; shows live flow rate (g/s, updated every second) and brew ratio (`1:x`), and stops
+  the timer automatically when the cup is removed (> 50 g drop after a stable reading).
+- **Espresso extraction** — placing the cup auto-tares and starts the timer; shows live flow
+  rate and brew ratio, and stops the timer automatically once dripping ends and the reading
+  stabilizes.
 - **Two-level menu** with runtime **Chinese / English** switch (persisted in EEPROM).
 - **Guided calibration** using openscale-style stability capture, range/sign validation and
   post-calibration verification; also calibration from a user-supplied actual weight over BLE/USB.
@@ -27,7 +38,6 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes / 更新日志.
 - **Continuous drift compensation** (off / 0.05 / 0.075 / 0.1 / 0.2 g selectable).
 - **Selectable ADS1232 averaging** (1 / 2 / 4 samples) and 16-sample calibration capture.
 - **WiFi OTA** (ElegantOTA access point).
-- **Pour-over auto-stop** — after the weight is stable, removing the cup (> 50 g drop) stops the timer.
 - **BLE controls** — runtime BLE on/off, client heartbeat monitoring, physical-button behaviour
   while connected, screen flip, time-on-top.
 
@@ -99,7 +109,12 @@ In extraction mode:
 | Short press **left `O`** | Timer start / stop / reset |
 | Short press **right `[]`** | Stop the timer (or reset it when stopped) |
 | Long press **right `[]`** | Rotate the display 180° |
+| Place the cup (espresso) | Auto-tare and start the timer |
+| Dripping stops and the reading stabilizes (espresso) | Timer stops automatically |
 | Remove the cup after the weight is stable (pour-over) | Timer stops automatically when the reading drops > 50 g |
+
+Both coffee modes display live flow rate (g/s, updated every second) and brew ratio
+(`1:x`, beverage weight ÷ ground dose), together with the dose, current weight and timer.
 
 ### Other button behaviour
 
