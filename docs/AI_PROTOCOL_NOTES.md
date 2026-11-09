@@ -66,6 +66,9 @@ BLE validation logic.
   `/api/logo/reset`.
 - Plugins: `GET /api/plugins`, `POST /api/plugin?name=x.js` (raw body),
   `POST /api/plugin/delete?name=x.js`; files served from `/plugins/`.
+- Charging status: `03 32 XOR` → `03 B2 <charging> <USB_DET> <BATTERY_CHARGING> <batteryV f32> <usbV f32> XOR`
+  (14 bytes). On V8.1 the USB_DET/CHRG digital pins do not change on this unit; firmware uses a hybrid:
+  CHRG low, or USB_DET low + battery-rail voltage >4.4 V / USB_DET analog >3 V. Battery sampled every 500 ms.
 - WiFi: menu `Start Hotspot` (AP only) or `Join WiFi` (scan → AP → AP+STA provisioning).
   APIs: `GET /api/wifi/scan`, `POST /api/wifi/rescan`, `POST /api/wifi/connect?ssid=&password=`,
   `POST /api/wifi/hotspot`. Status JSON adds `wifiState`, `staIp`, `staSsid`, `apIp`,

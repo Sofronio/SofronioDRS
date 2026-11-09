@@ -213,6 +213,7 @@ USB 开发辅助命令:`web` 启停热点;`joinwifi` 启动配网流程。
 | `03 1F` | 重启 |
 | `03 30 <float32 LE 实际重量g> XOR` | 按实际重量校准(应答 `0xB0`) |
 | `03 31 XOR` | 记录当前重量为容器(应答 `0xB1`) |
+| `03 32 XOR` | 查询充电/USB 状态(应答 `0xB2`:充电标志、原始电平、电池电压、USB 电压) |
 
 帧格式、校验、示例详见 [calibration.md](docs/calibration.md)。
 

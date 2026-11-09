@@ -343,6 +343,21 @@ float getUsbVoltage(int usbPin) {
   return usbVoltage;
 }
 
+//充电检测：openscale 的 USB_DET/CHRG 信号为主，V8.1 增加电压兜底。
+//本机实测：USB_DET 插拔恒为低、BATTERY_CHARGING 恒为高、USB_DET 模拟电压为 0，
+//只有电池/充电轨电压随 USB 明显变化(插 ~4.95V，拔 ~4.03V)，因此 V8.1 用电压交叉确认。
+inline bool isChargingNow() {
+#if defined(V8_1)
+  if (digitalRead(BATTERY_CHARGING) == LOW) return true;   // TP4056 正在充电
+  if (digitalRead(USB_DET) != LOW) return false;           // 正常板：未插 USB
+  return f_batteryVoltage > 4.4f || getUsbVoltage(USB_DET) > 3.0f;
+#elif defined(V0)
+  return digitalRead(BATTERY_CHARGING) == HIGH;
+#else
+  return digitalRead(USB_DET) == TRIGGER_LEVEL;
+#endif
+}
+
 int i_lowBatteryCount = 0;
 int i_lowBatteryCountTotal = 0;
 void power_off(int min) {
@@ -444,19 +459,17 @@ float get_bat_voltage() {
 #endif  //CHECKBATTERY
 
 void checkBattery() {
+  // 充电判断需要及时响应 USB 插拔，电池电压每 500ms 刷新一次
+  // (原来只在主循环每 30 秒刷新，拔掉 USB 后图标会延迟很久才变化)
+  static unsigned long t_chargingSample = 0;
+  if (millis() - t_chargingSample > 500) {
+    updateBattery(BATTERY_PIN);
+    t_chargingSample = millis();
+  }
   // Serial.print("Battery Voltage:");
   // Serial.print(f_batteryVoltage);
   float perc = map(f_batteryVoltage * 1000, showEmptyBatteryBelowVoltage * 1000, showFullBatteryAboveVoltage * 1000, 0, 100);  //map funtion doesn't take float as input.
-#if defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1)
-  //if (getUsbVoltage(USB_DET) > 4.0) {
-  if (digitalRead(USB_DET) == LOW) {
-#else
-#ifdef V0
-  if (digitalRead(BATTERY_CHARGING) == HIGH) {
-#else
-  if (digitalRead(BATTERY_CHARGING) == LOW) {
-#endif
-#endif
+  if (isChargingNow()) {
     b_is_charging = true;
     c_battery = (char*)"6";  // Special icon for charging
     // Serial.println("Battery is charging");

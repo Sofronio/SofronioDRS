@@ -181,6 +181,7 @@ auto-subtract, samples, settings version).
 | `03 1F` | Reset |
 | `03 30 <float32 LE grams> XOR` | Calibrate with a user-supplied actual weight (response `0xB0`) |
 | `03 31 XOR` | Record current weight as container (response `0xB1`) |
+| `03 32 XOR` | Query charging/USB status (response `0xB2`: charging, raw pins, battery V, USB V) |
 
 Frame checksums, examples and response formats are documented in
 [calibration.md](docs/calibration.md) (Chinese).

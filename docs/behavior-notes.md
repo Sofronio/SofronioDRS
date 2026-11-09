@@ -66,6 +66,7 @@ Pour-over cup removed (>50g): 302.5g -> 0.3g, timer stopped
 - WiFi 开启时 OLED 显示 openscale 同款 WiFi 图标：位于 BLE 图标左侧；纯称重第一排，萃取模式第二排。
 - Web UI/WiFi 开启期间双击不再关机（使用网页 Power Off），避免配网/调试误触。
 - WebSocket 状态推送 4Hz，并在客户端队列满时跳帧，避免 “Too many messages queued”。
+- 充电判断（V8.1）：USB_DET/CHRG 数字电平在本机插拔不变，采用 CHRG 低 / USB_DET 低 + 电池轨电压>4.4V / USB_DET 模拟电压>3V 的混合判断；电池电压每 500ms 刷新，插拔后约半秒更新图标。BLE `0x32` 可查询充电状态、电池电压、USB 电压。
 - Logo XBM 格式必须为行优先、每行 16 字节、LSB 在左（与 `u8g2.drawXBMP` 一致）；网页提供 PNG/XBM 下载与内置 Logo 恢复。
 - 插件：LittleFS `/plugins/*.js`，网页自动加载，提供 `ScaleWeb` JS API（见 `webui-plugins.md`）。
 - 网页控制与 WiFi 升级共用 80 端口，启动 WiFi 升级前会自动停止网页服务。

@@ -91,6 +91,10 @@
                   fix - logo upload accepts chunked bodies; add PNG download/export
                   fix - WebSocket status throttled to 4 Hz with queue backpressure
                   fix - double-click cannot power off while Web UI is active
+                  fix - extraction long-press (rotation) no longer forces weight display to 0
+                  fix - weighing mode no longer shows the extraction timer
+                  fix - V8.1 charging detection: hybrid USB_DET/CHRG + battery-rail voltage,
+                        battery sampled every 500ms; BLE 0x32 charging status query
                   rem - 4.2V voltage calibration menu entry (serial 'vf' remains)
                   rem - Debug Info menu entry (BLE 0x1E group=2 debug screen retained)
                   fix - custom commands moved from 0x1C/0x1D to 0x30/0x31 (no standard protocol conflict)
@@ -189,6 +193,9 @@ void sendBleCalibrationResult(uint8_t result, float measured, float new_cal);
 int applyContainerRecord(float &measured, float &container);
 void handlePendingContainerRecord();
 void sendBleContainerResult(uint8_t result, float measured, float container);
+
+// 充电/电源状态查询（BLE 0x32 -> 0xB2）
+void sendBleChargingStatus();
 
 // 屏幕翻转（菜单“屏幕翻转”开关）
 const u8g2_cb_t* applyFlipRotation(const u8g2_cb_t *base) {
@@ -513,6 +520,9 @@ class MyCallbacks : public BLECharacteristicCallbacks {
             i_containerRecordSource = 1;
             b_containerRecordPending = true;
           }
+        } else if (data[1] == 0x32) {
+          //0332 查询充电/电源状态
+          sendBleChargingStatus();
         }
 #ifdef WIFI
         else if (data[1] == 0x1B) {
@@ -728,6 +738,7 @@ void buttonTare_Pressed() {
       Serial.println(i_button_cal_status);
       //return;
     } else if (b_extraction) {
+      b_tarePressTimerRunning = stopWatch.isRunning();
       if (stopWatch.isRunning())
         //在计时中 按一下则结束计时 停止冲煮
         //press button to stop the timer, and stop the brewing.
@@ -925,6 +936,13 @@ void buttonTare_LongPressed() {
       reset();
     } else {
       if (b_extraction) {
+        //长按=旋转屏幕。撤销按下时“停止/归零计时”的副作用：
+        //否则 b_weight_quick_zero 会一直把显示重量压在 0。
+        b_weight_quick_zero = false;
+        if (b_tarePressTimerRunning) {
+          stopWatch.start();  //恢复按下前正在运行的计时
+          b_tarePressTimerRunning = false;
+        }
         i_display_rotation = !i_display_rotation;
       } else {
         if (b_mode != 0)
@@ -1126,6 +1144,10 @@ void setup() {
 #endif
   print_wakeup_reason();
   Serial.println("GPIO_power_on_with = " + String(GPIO_power_on_with));
+  Serial.print("Power pins: USB_DET=");
+  Serial.print(digitalRead(USB_DET));
+  Serial.print(" BATTERY_CHARGING=");
+  Serial.println(digitalRead(BATTERY_CHARGING));
   if (GPIO_power_on_with == BATTERY_CHARGING)
     b_is_charging = true;
   //开机按键选择BLE：左键 O/SET = 开，右键 []/TARE = 关；
@@ -2756,6 +2778,39 @@ void sendBleContainerResult(uint8_t result, float measured, float container) {
 }
 
 // BLE回应（通过FFF4 notify）:
+// 03 B2 <charging> <USB_DET电平> <BATTERY_CHARGING电平>
+//       <float32 小端 电池电压> <float32 小端 USB电压> XOR
+// 共14字节，XOR为前13字节的异或
+void sendBleChargingStatus() {
+  if (!deviceConnected || pReadCharacteristic == nullptr) return;
+  updateBattery(BATTERY_PIN);  // 查询时强制刷新一次电压
+  uint8_t data[14];
+  data[0] = modelByte;
+  data[1] = 0xB2;
+  data[2] = b_is_charging ? 1 : 0;
+  data[3] = (uint8_t)digitalRead(USB_DET);
+  data[4] = (uint8_t)digitalRead(BATTERY_CHARGING);
+  memcpy(&data[5], &f_batteryVoltage, sizeof(float));
+  float usbV = getUsbVoltage(USB_DET);
+  memcpy(&data[9], &usbV, sizeof(float));
+  uint8_t checksum = 0;
+  for (int i = 0; i < 13; i++) checksum ^= data[i];
+  data[13] = checksum;
+  pReadCharacteristic->setValue(data, sizeof(data));
+  pReadCharacteristic->notify();
+  Serial.print("Charging status: charging=");
+  Serial.print(b_is_charging);
+  Serial.print(" USB_DET=");
+  Serial.print(digitalRead(USB_DET));
+  Serial.print(" BATTERY_CHARGING=");
+  Serial.print(digitalRead(BATTERY_CHARGING));
+  Serial.print(" batteryV=");
+  Serial.print(f_batteryVoltage);
+  Serial.print(" usbV=");
+  Serial.println(usbV);
+}
+
+// BLE回应（通过FFF4 notify）:
 // 03 B0 <status> <float32 小端 实测重量(g)> <float32 小端 新校准系数> XOR
 // 共12字节，XOR为前11字节的异或
 void sendBleCalibrationResult(uint8_t result, float measured, float new_cal) {
@@ -2894,6 +2949,20 @@ void serialCommand() {
 
     if (inputString == "joinwifi") {  //启动“加入WiFi”流程（开发/调试用）
       joinWiFi();
+    }
+
+    if (inputString == "chg") {  //打印充电/USB原始电平（开发/调试用）
+      updateBattery(BATTERY_PIN);
+      Serial.print("USB_DET=");
+      Serial.print(digitalRead(USB_DET));
+      Serial.print("\tBATTERY_CHARGING=");
+      Serial.print(digitalRead(BATTERY_CHARGING));
+      Serial.print("\tb_is_charging=");
+      Serial.print(b_is_charging);
+      Serial.print("\tbatteryV=");
+      Serial.print(f_batteryVoltage);
+      Serial.print("\tusbV=");
+      Serial.println(getUsbVoltage(USB_DET));
     }
 
     if (inputString == "logodump") {  //导出当前Logo的XBM十六进制（开发/调试用）
@@ -3349,14 +3418,6 @@ void drawPureScale() {
   x = AC(trim(c_weight));
   y = AM();
   u8g2.drawUTF8(x, y + 3, trim(c_weight));
-
-  //计时显示（“时间置顶”开关：顶部/底部）
-  if (stopWatch.elapsed() > 0) {
-    const char *tstr = sec2sec(stopWatch.elapsed());
-    u8g2.setFont(FONT_EXTRACTION);
-    int ty = b_timeOnTop ? u8g2.getMaxCharHeight() : LCDHeight - 2;
-    u8g2.drawUTF8(AR(tstr), ty, (char *)tstr);
-  }
 }
 
 void drawExtrationScale() {
@@ -3551,12 +3612,7 @@ void drawBattery() {
   int y_battery = 0;
   if (b_extraction)
     y_battery = 26;
-#if defined(V7_4) || defined(V7_5) || defined(V8_0) || defined(V8_1)
-  //if (getUsbVoltage(USB_DET) > 4.0) {
-  if (digitalRead(USB_DET) == TRIGGER_LEVEL) {
-#else
-  if (digitalRead(BATTERY_CHARGING) == TRIGGER_LEVEL) {
-#endif
+  if (isChargingNow()) {
     b_is_charging = true;
     u8g2.drawXBM(x_battery, y_battery, 7, 12, image_battery_charging);  // charging icon
     // Serial.println("Battery is charging");
@@ -3598,7 +3654,7 @@ void drawDebug() {
     }
 
     char chargingText[24];
-    if (digitalRead(BATTERY_CHARGING) == TRIGGER_LEVEL)  //low for charging
+    if (isChargingNow())
       snprintf(chargingText, sizeof(chargingText), "%s", T("充电中", "Charging"));
     else
       snprintf(chargingText, sizeof(chargingText), "%s", T("未充电", "Not charging"));

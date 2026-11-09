@@ -179,6 +179,7 @@ int i_calibration = 0;       //0 for manual cal, 1 for smart cal
 bool b_show_about = false;      //显示设备信息界面（0x1E group=1）
 bool b_aboutFromMenu = false;   //设备信息由菜单进入，退出时回到菜单
 bool b_suppressTareRelease = false; //菜单选择用的右键按下，其释放不触发去皮
+bool b_tarePressTimerRunning = false; //右键按下时计时器是否在运行（长按旋转时要恢复）
 bool b_bleResetPending = false; //收到0x1F重启命令，由主循环执行
 
 //语言与菜单开关（EEPROM保存）

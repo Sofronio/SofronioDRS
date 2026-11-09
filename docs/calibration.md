@@ -346,7 +346,26 @@ Container record result: 0	measured: 18.52g	container: 18.52g
 
 立即软重启（ESP32 `ESP.restart()`），屏幕显示“重启中”。
 
-### 7.5 校准 `0x1A`
+### 7.5 充电/电源状态查询 `0x32`（自定义）
+
+```
+03 32 XOR
+```
+
+应答（通过 `FFF4` notify，共 14 字节）:
+
+```
+03 B2 <charging> <USB_DET电平> <BATTERY_CHARGING电平>
+      <float32 小端 电池电压(V)> <float32 小端 USB_DET模拟电压(V)> <XOR>
+```
+
+- `charging`: 1=充电/USB 接入,0=未充电
+- V8.1 实测 `USB_DET`/`BATTERY_CHARGING` 数字电平不随插拔变化，固件使用
+  “CHRG 低 / USB_DET 低 + 电池轨电压>4.4V / USB_DET 模拟电压>3V” 的混合判断，
+  电池电压每 **500ms** 刷新一次。
+- 串口调试命令 `chg` 打印同样的字段。
+
+### 7.6 校准 `0x1A`
 
 ```
 03 1A <mode>
