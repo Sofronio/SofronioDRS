@@ -31,11 +31,11 @@ First automated GitHub Actions firmware release.
 - **BLE charging/USB status query** — `03 32` returns `0xB2` with the charging flag, raw
   `USB_DET`/`BATTERY_CHARGING` levels, battery voltage, USB voltage and XOR checksum.
   USB serial `chg` prints the same diagnostics.
-- **Automatic extraction control** — pour-over starts the timer when the first liquid weight
-  appears and stops it after the cup is removed (> 50 g drop after a stable reading);
-  espresso auto-tares and starts when the cup is placed, then stops when dripping ends and
-  the reading stabilizes. Both extraction screens show live flow rate (g/s, updated every
-  second) and brew ratio (`1:x`, beverage weight ÷ ground dose).
+- **Automatic extraction control** — after zeroing, pour-over starts the timer automatically
+  when pouring is detected and stops it after the cup is removed (> 50 g drop after a stable
+  reading); espresso auto-tares and starts when the cup is placed, then stops when dripping
+  ends and the reading stabilizes. Both extraction screens show live flow rate (g/s, updated
+  every second) and brew ratio (`1:x`, beverage weight ÷ ground dose).
 - **Boot-time BLE switch** — hold left `O` for BLE on, hold right `[]` for BLE off;
   reset/USB wake uses the saved menu setting.
 - **Chinese README** and links between the English and Chinese documentation.
@@ -97,7 +97,7 @@ First automated GitHub Actions firmware release.
   重量(BLE `0x31`、USB `ctr`)。
 - **BLE 充电/USB 状态查询** — `03 32` 返回 `0xB2`：充电标志、`USB_DET`/`BATTERY_CHARGING`
   原始电平、电池电压、USB 电压和 XOR 校验。USB 串口 `chg` 可打印相同诊断信息。
-- **自动萃取控制** — 手冲出现液重后自动开始计时，稳态后移出杯子(下降 > 50 g)自动停止；
+- **自动萃取控制** — 手冲清零后监测到注水自动开始计时，稳态后移出杯子(下降 > 50 g)自动停止；
   意式放杯自动清零并开始计时，停止落液且读数稳定后自动停止。两种萃取界面都显示实时
   流速(g/s，每秒刷新)和粉水比(`1:x`，液重 ÷ 粉重)。
 - **开机 BLE 开关** — 长按左键 `O` 开机并开启 BLE，长按右键 `[]` 开机并关闭 BLE；

@@ -25,8 +25,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes / 更新日志.
 - **Two weighing modes** — **pure weighing** and **extraction**. Pure weighing is for dosing
   the coffee grounds, container/tare work and everyday weighing; a short press of left `O`
   enters extraction mode with the current reading as the dose.
-- **Pour-over extraction** — starts the timer automatically when the first liquid weight
-  appears; shows live flow rate (g/s, updated every second) and brew ratio (`1:x`), and stops
+- **Pour-over extraction** — after zeroing, starts the timer automatically when pouring is
+  detected; shows live flow rate (g/s, updated every second) and brew ratio (`1:x`), and stops
   the timer automatically when the cup is removed (> 50 g drop after a stable reading).
 - **Espresso extraction** — placing the cup auto-tares and starts the timer; shows live flow
   rate and brew ratio, and stops the timer automatically once dripping ends and the reading
