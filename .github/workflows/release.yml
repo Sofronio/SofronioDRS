@@ -19,7 +19,7 @@ jobs:
   build:
     name: Build esp32s3_v8_1
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -36,9 +36,12 @@ jobs:
           path: |
             ~/.cache/pip
             ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+            .pio/core
+            .pio/cache
+            .pio/libdeps
+          key: platformio-v2-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: |
-            platformio-${{ runner.os }}-
+            platformio-v2-${{ runner.os }}-
 
       - name: Install PlatformIO
         run: |
@@ -46,7 +49,18 @@ jobs:
           pip install --upgrade platformio
 
       - name: Build firmware
-        run: pio run -e esp32s3_v8_1
+        run: |
+          set -euo pipefail
+          # pioarduino platform downloads occasionally return 5xx from GitHub;
+          # retry the whole build so a transient download failure does not break the release.
+          for attempt in 1 2 3; do
+            if pio run -e esp32s3_v8_1; then
+              exit 0
+            fi
+            echo "::warning::Build attempt ${attempt} failed; retrying in 20s"
+            sleep 20
+          done
+          exit 1
 
       - name: Collect firmware and checksum
         run: |
