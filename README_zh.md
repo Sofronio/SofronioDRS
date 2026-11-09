@@ -9,7 +9,8 @@ ESP32-S3N16、ADS1232 24 位 ADC、SH1106 OLED、BMA400 加速度计、TP4056 �
 REF5025 基准、2kg 称重传感器。默认 PlatformIO 环境为 **PCB v8.1**，其他版本(v8.0 / v7.5 / v7.2
 / 原 ESP32 板)在 `platformio.ini` 中也有对应环境。
 
-当前固件版本:**6.1.3** · 默认 PCB:**8.1**
+当前固件版本:**6.2.0** · 默认 PCB:**8.1**
+发布说明见 [CHANGELOG.md](CHANGELOG.md)(中英文)。
 
 ---
 
@@ -58,7 +59,7 @@ pio device monitor --port /dev/cu.wchusbserialXXX --baud 115200
 
 中文界面字体由 `tools/gen_subset_fonts.py` 在构建时按源码实际用字生成，写入
 `include/generated_fonts.h`。相比三套完整 GB2312 字体(约 759KB)，子集约 23KB，
-固件从 2.09MB 降到约 1.45MB。修改中文界面文案后重新编译即可自动更新。
+固件从 2.09MB 降到约 1.5MB。修改中文界面文案后重新编译即可自动更新。
 
 ---
 

@@ -10,7 +10,8 @@ charger, CH340K USB-serial, REF5025 reference, 2 kg load cell). The default Plat
 environment targets **PCB v8.1**; other board revisions (v8.0 / v7.5 / v7.2 and the original
 ESP32 board) are available as separate environments.
 
-Current firmware version: **6.1.3** · Default PCB: **8.1**.
+Current firmware version: **6.2.0** · Default PCB: **8.1**.
+See [CHANGELOG.md](CHANGELOG.md) for release notes / 更新日志.
 
 ---
 
@@ -267,7 +268,7 @@ See [calibration.md](docs/calibration.md) for details.
 
 Chinese UI fonts are generated at build time from the characters actually used by the source:
 `tools/gen_subset_fonts.py` writes `include/generated_fonts.h`. This replaced the three full
-GB2312 U8g2 fonts (~759 KB) with ~23 KB of subsets, cutting the binary from 2.09 MB to ~1.36 MB.
+GB2312 U8g2 fonts (~759 KB) with ~23 KB of subsets, cutting the binary from 2.09 MB to ~1.5 MB.
 After changing UI strings, rebuild (the PlatformIO `pre:` hook regenerates the header).
 
 ---

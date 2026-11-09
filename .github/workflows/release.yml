@@ -1,0 +1,102 @@
+name: Build & Release Firmware
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build esp32s3_v8_1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -e esp32s3_v8_1
+
+      - name: Collect firmware and checksum
+        run: |
+          set -euo pipefail
+          BUILD=".pio/build/esp32s3_v8_1"
+          VERSION=$(grep -m1 -o 'FW: [0-9.]*' include/config.h | cut -d' ' -f2)
+          PCB=$(grep -m1 -o 'PCB: [0-9.]*' include/config.h | cut -d' ' -f2)
+          BASE="DRS_FW_${VERSION//./_}_PCB_${PCB//./_}"
+          echo "Firmware ${VERSION}, PCB ${PCB}"
+          test -f "$BUILD/$BASE.bin"
+          mkdir -p dist
+          cp "$BUILD/$BASE.bin" "dist/DRS_FW_${VERSION}_PCB_${PCB}_esp32s3_v8_1.bin"
+          (cd dist && sha256sum ./*.bin > SHA256SUMS.txt)
+          ls -lh dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DRS_FW_${{ github.ref_name }}_esp32s3_v8_1
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Extract bilingual release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python3 - "${{ github.ref_name }}" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          tag = sys.argv[1]
+          version = tag[1:] if tag[:1] in "vV" else tag
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              text,
+              re.MULTILINE | re.DOTALL,
+          )
+          if not match:
+              sys.exit(f"CHANGELOG.md has no section for version {version}")
+          notes = match.group(1).strip()
+          pathlib.Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
+          print(notes)
+          PY
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "Sofronio DRS Firmware ${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md
